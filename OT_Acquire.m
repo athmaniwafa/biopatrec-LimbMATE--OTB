@@ -1,0 +1,153 @@
+classdef OT_Acquire < handle
+    % OT_Acquire
+    % Handle class wrapping the OT Bioelettronica EMG-USB2+ device so
+    % BioPatRec can use it exactly like it uses LimbMATE_BioPatRec.
+    % Interface mirrors LimbMATE_BioPatRec:
+    %   obj.startAcquisitionEMG(...)       -- starts streaming
+    %   obj.getEMG_data_TW_float(N)        -- returns [N x Nch] single
+    %   obj.stopAcquisitionEMG()           -- stops
+    %   obj.disconnectBTdevice()           -- stops + closes
+    %
+    % Usage:
+    %   ot = OT_Acquire('bipolar', 4, 30);    % mode, nBipolar, DurationSec
+    %   ot = OT_Acquire('hd1');               % one 64-ch matrix
+    %   ot = OT_Acquire('hd2');               % two 64-ch matrices
+
+    properties
+        mode        % 'bipolar' | 'hd1' | 'hd2'
+        dev         % OTComm device object
+        config      % struct from config_* helper
+        Nch         % number of channels
+        Fs          % sampling rate (2048 for EMG-USB2+)
+        buffer      % preallocated [Duration*Fs x Nch] single
+        writeIndex  % next row to write
+        listener    % addlistener handle
+        stopped = false;
+        started = false;
+    end
+
+    methods
+        function obj = OT_Acquire(mode, nBipolar, DurationSec)
+            if nargin < 1, mode = 'bipolar';   end
+            if nargin < 2, nBipolar = 4;       end
+            if nargin < 3, DurationSec = 60;   end
+
+            % Fail loudly if OTBioLab+ is running
+            [~,out] = system('tasklist | findstr /I "OTBioLab"');
+            if ~isempty(strtrim(out))
+                error('OT_Acquire: close OTBioLab+ before acquiring.');
+            end
+
+            % Load .NET assembly (safe to call repeatedly)
+            NET.addAssembly('C:\Program Files\OT BioLab+\OTComm.dll');
+
+            % Configure device
+            obj.mode = lower(char(mode));
+            switch obj.mode
+                case 'bipolar'
+                    [obj.dev, obj.config] = config_bipolar(nBipolar);
+                case 'hd1'
+                    [obj.dev, obj.config] = config_hd1();
+                case 'hd2'
+                    [obj.dev, obj.config] = config_hd2();
+                otherwise
+                    error('OT_Acquire: unknown mode "%s".', mode);
+            end
+
+            obj.Nch = double(obj.config.NumChannels);
+            obj.Fs  = 2048;
+
+            % Open + initialise
+            obj.dev.NewDataAvailableEventsPerSecond = 16;
+            obj.dev.OpenDevice();
+            obj.dev.InitializeDevice();
+
+            acquired = double(obj.dev.GetAcquiredChannels());
+            if numel(acquired) ~= obj.Nch
+                warning('OT_Acquire: expected %d channels, device reported %d.', ...
+                    obj.Nch, numel(acquired));
+            end
+
+            % Preallocate internal buffer
+            obj.buffer     = zeros(round(DurationSec * obj.Fs), obj.Nch, 'single');
+            obj.writeIndex = 0;
+        end
+
+        function startAcquisitionEMG(obj, varargin)
+            % varargin ignored -- BioPatRec passes LM-style arguments.
+            if obj.started, return; end
+            obj.listener = addlistener(obj.dev, 'OnNewDataAvailable', @obj.onData);
+            obj.dev.StartAcquisition();
+            obj.started = true;
+            obj.stopped = false;
+        end
+
+        function block = getEMG_data_TW_float(obj, N)
+            % Returns the next N samples as [N x Nch] single.
+            % If not enough samples are available, waits up to 2 seconds.
+            if nargin < 2, N = 256; end
+
+            deadline = tic;
+            while obj.writeIndex < N
+                pause(0.005);
+                if toc(deadline) > 2
+                    warning('OT_Acquire: timeout waiting for %d samples (have %d).', ...
+                        N, obj.writeIndex);
+                    break;
+                end
+            end
+
+            nTake = min(N, obj.writeIndex);
+            block = zeros(N, obj.Nch, 'single');
+            if nTake > 0
+                block(1:nTake, :) = obj.buffer(1:nTake, :);
+                remaining = obj.writeIndex - nTake;
+                if remaining > 0
+                    obj.buffer(1:remaining, :) = obj.buffer(nTake+1:obj.writeIndex, :);
+                end
+                obj.writeIndex = remaining;
+            end
+        end
+
+        function stopAcquisitionEMG(obj)
+            if ~obj.started || obj.stopped, return; end
+            try obj.dev.StopAcquisition(); catch, end
+            try delete(obj.listener); obj.listener = []; catch, end
+            obj.stopped = true;
+            obj.started = false;
+        end
+
+        function disconnectBTdevice(obj)
+            % Name kept for BioPatRec compatibility
+            try obj.stopAcquisitionEMG(); catch, end
+            try obj.dev.CloseDevice();    catch, end
+        end
+
+        function delete(obj)
+            try obj.disconnectBTdevice(); catch, end
+        end
+
+        % ---- Event callback ----
+        function onData(obj, ~, eventData)
+            if obj.stopped || ~obj.started, return; end
+
+            D = eventData.Data;
+            u = uint16(D.data16);  u = u(:);
+            s = typecast(u, 'int16');  s = s(:);
+
+            nFrames = floor(numel(s) / obj.Nch);
+            if nFrames < 1, return; end
+
+            s     = s(1 : nFrames * obj.Nch);
+            block = reshape(s, obj.Nch, nFrames)';    % [nFrames x Nch]
+
+            spaceLeft = size(obj.buffer, 1) - obj.writeIndex;
+            nTake     = min(nFrames, spaceLeft);
+            if nTake <= 0
+                return;
+            end
+            obj.buffer(obj.writeIndex+1 : obj.writeIndex+nTake, :) = block(1:nTake, :);
+            obj.writeIndex = obj.writeIndex + nTake;
+        end
+    end
+end
