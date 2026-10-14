@@ -408,9 +408,21 @@ classdef LimbMATE < handle
             self.findBTdevice(BTname);
             self.connectFoundBTmodule();
             pause(1.5) % This delay is necessary for the BT Dongle, since it happened to interfere with further commands
-            self.setSpeedBT(BTspeed); %Communication speed can be 1Mb/s or 2Mb/s 
-            self.getDeviceName();
-            self.getDeviceFirmware();
+        try
+            self.setSpeedBT(BTspeed);
+        catch ME
+            warning('setSpeedBT failed: %s - continuing at default speed.', ME.message);
+        end
+    try
+        self.getDeviceName();
+    catch ME
+        warning('getDeviceName failed: %s - continuing without name.', ME.message);
+    end
+    try
+        self.getDeviceFirmware();
+    catch ME
+        warning('getDeviceFirmware failed: %s - continuing without firmware info.', ME.message);
+    end
         end
         
         %% Disconnect Bluetooth devices
