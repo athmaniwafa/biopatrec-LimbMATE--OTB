@@ -678,8 +678,26 @@ function startRecording(handles, afeSettings)
     cont = get(handles.cb_cont,'Value');
     
     % Get sampling time (if not continuous) and time window
-    tW = str2double(get(handles.et_rTw,'String'));
+    % Time window selected by user (seconds)
+    tW = str2double(get(handles.et_rTw, 'String'));
+    
+    if ~isfinite(tW) || tW <= 0
+        error('Invalid time window.');
+    end
+    
+    % Number of samples per window
+    tWs = round(tW * sF);
+    
+    if tWs < 1
+        error('Time window must contain at least one sample.');
+    end
+    
+    % Align window duration with the actual number of samples
+    tW = tWs / sF;
+    
     handles.tW = tW;
+    handles.tWs = tWs;
+
     if cont
         sT = tW;
         % Reset disconnect button status
@@ -690,8 +708,36 @@ function startRecording(handles, afeSettings)
     handles.sT = sT;
     handles.sTall = sT;
     
-    % Samples per time window
-    tWs = tW*sF;
+    % Initialize OTB400 with parameters selected in the GUI
+    if contains(deviceName, 'OTB400')
+    
+        if sF ~= 2048
+            error('OTB400 requires sampling rate 2048 Hz.');
+        end
+    
+        if contains(deviceName, 'HD')
+    
+            if ~isfield(afeSettings, 'OTB400Electrodes')
+                error('OTB400 HD: electrode configuration missing.');
+            end
+    
+            electrodes = afeSettings.OTB400Electrodes;
+    
+            objOT = OT_Acquire('hd', nCh, [], electrodes);
+    
+        else
+    
+            objOT = OT_Acquire('bipolar', nCh);
+    
+        end
+    
+        handles.objOT = objOT;
+    
+        % Close device even if this function exits due to an error
+        otCleanup = onCleanup(@() objOT.disconnectBTdevice());
+    
+    end
+
     
     % Connect the chosen device, it returns the connection object
     obj = ConnectDevice(handles);
@@ -702,18 +748,21 @@ function startRecording(handles, afeSettings)
     % Collect data
     if ~cont % Non-continuous mode
         cDataAll = zeros(sT*sF, nCh);
+
         for timeWindowNr = 1:sT/tW
-            [cData, error] = Acquire_tWs(deviceName, obj, nCh, tWs, compressData);    % acquire a new time window of samples  
+            [cData, error] = Acquire_tWs(deviceName, obj, nCh, nThisWindow, compressData);    % acquire a new time window of samples  
             if error == 1
                 errordlg('Error occurred during the acquisition!','Error');
                 return
             end
-            cDataAll(((timeWindowNr-1)*tWs + 1):((timeWindowNr)*tWs),:)=cData;
+
+            cDataAll(firstSample:firstSample+nThisWindow-1, :) = cData;
+
             if live
                 previewTw(handles.a_t0,cData, rows, cols);
             end
             % Show current recording time
-            cT = timeWindowNr*tW;
+            cT = (firstSample + nThisWindow - 1) / sF;
             tT = sT;
             cT = [num2str(floor(cT/60)) ':' num2str(floor(mod(cT,60)),'%02d')];
             tT = [num2str(floor(tT/60)) ':' num2str(floor(mod(tT,60)),'%02d')];

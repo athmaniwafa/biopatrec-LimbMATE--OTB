@@ -86,11 +86,18 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     sT            = handles.sT;
     handles.sT    = sT;
     handles.sTall = sT;
-    tW            = handles.tW;
-    tWs           = round(tW*sF);                                                 % Time window samples
-    handles.tWs   = tWs;
-    tWs = round(tW*sF);                  % ensure integer
-    timeStamps = (0:tWs-1) / sF;         % length matches tWs exactly                                        % Create vector of time
+    if contains(deviceName, 'OTB400')
+        tWs = 256;
+        tW = tWs / sF;
+    else
+        tW = handles.tW;
+        tWs = round(tW*sF);                 % ensure integer
+    end
+    
+    handles.tWs = tWs; % Time window samples
+    timeStamps = (0:tWs-1)/sF;          % Create vector of time                                  
+    
+    
     
     if mod(sT,tW) > 0
         errordlg('Please, the time window size must be a multiple of the recording time. Select a proper time window size!')
@@ -232,9 +239,21 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
             % currently connected adapter). Change 'bipolar' to 'hd1' or
             % 'hd2' if you plug in the corresponding adapter later.
             if contains(deviceName, 'HD')
-                objOT = OT_Acquire('hd1', handles.nCh, otDuration);
+                % Read electrode configuration from GUI
+                if ~isfield(afeSettings, 'OTB400Electrodes')
+                    error('OTB400 HD: electrode configuration missing.');
+                end
+        
+                electrodeConfig = afeSettings.OTB400Electrodes;
+        
+                objOT = OT_Acquire('hd', nCh, otDuration, electrodeConfig);
+        
+                fprintf('OTB400 HD: %d channels configured\n', nCh);
+                disp(objOT.config);
+        
             else
-                objOT = OT_Acquire('bipolar', handles.nCh, otDuration);
+                % Bipolar acquisition
+                objOT = OT_Acquire('bipolar', nCh, otDuration);
             end
 
             handles.objOT = objOT;
@@ -263,11 +282,29 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
             if useAcceleGlove
                 acceleGlove.update();
             end
-            [cdata, error] = Acquire_tWs(deviceName, obj, nCh, tWs, compressData);    % acquire a new time window of samples  
-            if error == 1
-                errordlg('Error occurred during the acquisition!','Error');
-                return
+            
+            if contains(deviceName, 'OTB400')
+            
+                % Read data directly from OT_Acquire
+                cdata = obj.getEMG_data_TW_float(tWs);
+            
+                acquisitionError = 0;
+            
+            else
+            
+                % Other devices
+                [cdata, acquisitionError] = Acquire_tWs( ...
+                    deviceName, obj, nCh, tWs, compressData);
+            
             end
+            
+            if acquisitionError == 1
+            
+                errordlg('Error occurred during acquisition!', 'Error');
+                return;
+            
+            end
+
             acquireEvent.Data = cdata;
             
             % Wait up to 100ms for data from AcceleGlove, if timeout
@@ -324,7 +361,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     end
 
     % Cleanup for OTB
-    if strcmp(deviceName, 'OTB400')
+    if contains(deviceName, 'OTB400')
         if isfield(handles,'objOT') && ~isempty(handles.objOT)
             try
                 handles.objOT.disconnectBTdevice();

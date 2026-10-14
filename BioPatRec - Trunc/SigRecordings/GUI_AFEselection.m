@@ -178,11 +178,16 @@ AFE_settings.sampleRate=sF;
 if isfield(handles,'vCh')
     AFE_settings.channels = handles.nCh;
     AFE_settings.vChannels = handles.vCh;
-    hGUI_Rec.vCh = handles.vCh;
+    
     nCh = handles.nCh;
 else
     AFE_settings.channels = str2double(get(handles.et_chs,'String'));
     nCh = AFE_settings.channels;
+end
+
+%% OTB400 HD electrode configuration
+if isfield(handles, 'OTB400Electrodes')
+    AFE_settings.OTB400Electrodes = handles.OTB400Electrodes;
 end
 
 
@@ -259,6 +264,10 @@ if mode == 0
     useLeg = handles.varargin{11};
 end
 %useLeg = handles.varargin{11};
+
+if isfield(handles, 'vCh')
+    hGUI_Rec.vCh = handles.vCh;
+end
 
 AFE_settings.recFeatures   = get(handles.cb_recFeatures,'Value');
 if(AFE_settings.recFeatures)
@@ -494,6 +503,21 @@ function pm_name_Callback(hObject, eventdata, handles)
 %        str2double(get(hObject,'String')) returns contents of pm_name as a double
 contents = cellstr(get(handles.pm_name,'String'));
 deviceName = contents{get(handles.pm_name,'Value')};
+
+% Reset previous channel selection
+if isfield(handles, 'nCh')
+    handles = rmfield(handles, 'nCh');
+end
+
+if isfield(handles, 'vCh')
+    handles = rmfield(handles, 'vCh');
+end
+
+if isfield(handles, 'OTB400Electrodes')
+    handles = rmfield(handles, 'OTB400Electrodes');
+end
+
+% settings based on deviceName
 if strcmp(deviceName, 'Thalmic MyoBand')
     %CK: These are the default values for the MyoBand. Changing these might
     %lead to unwanted behaviour.
@@ -520,36 +544,81 @@ elseif strcmp(deviceName, 'ALC-24chs')
 end
 
 % ---- OTB (OT Bioelettronica EMG-USB2+) settings ----
+
 if contains(deviceName, 'OTB400')
-    if contains(deviceName, 'HD')
-            choice = questdlg('Select number of channels:', ...
-                              'OTB400 HD', ...
-                              '64', '128', '64');
-    
+    if strcmp(deviceName, 'OTB400_HD')
+
+        % Step 1: Select number of channels
+        choice = questdlg('Select number of channels:', ...
+                          'OTB400 HD', ...
+                          '64', '128', '64');
+
         if isempty(choice)
             return;
         end
-    
-        handles.nCh = str2double(choice);
-        handles.vCh = 1:handles.nCh;
-    
+
+        nChSelected = str2double(choice);
+
+        % Step 2: Select electrodes for each MULTIPLE input
+        [electrodes, ok] = OTB400_SelectElectrodes(nChSelected);
+
+        if ~ok
+            return;
+        end
+
+        % Save channel configuration
+        handles.nCh = nChSelected;
+        handles.vCh = 1:nChSelected;
+
+        % Save electrode configuration
+        handles.OTB400Electrodes = electrodes;
+
         set(handles.et_chs, 'String', choice);
-    
-        fprintf('Selected channels: %d\n', handles.nCh);
+
+        fprintf('OTB400 HD: %d channels\n', handles.nCh);
+        disp(handles.OTB400Electrodes);
+
     else % BIPOLAR
+
+        handles.nCh = 8;
+        handles.vCh = 1:8;
+
+        if isfield(handles, 'OTB400Electrodes')
+            handles = rmfield(handles, 'OTB400Electrodes');
+        end
+
         set(handles.et_chs, 'String', '8');
+
     end
+
+    % Sampling frequency
     srList = cellstr(get(handles.pm_sampleRate, 'String'));
-    if ~any(strcmp(srList, '2048'))
-        srList = [srList(:); {'2048'}];
+
+    idxSR = find(strcmp(srList, '2048'), 1);
+
+    if isempty(idxSR)
+        srList{end+1} = '2048';
         set(handles.pm_sampleRate, 'String', srList);
+        idxSR = numel(srList);
     end
-    set(handles.pm_sampleRate, 'Value', numel(srList));
-    set(handles.ComPortType, 'Value', 3);   % COM
-    set(handles.ComPortName, 'String', 3);  % Port N 3
+
+    set(handles.pm_sampleRate, 'Value', idxSR);
+
+    % COM configuration
+    comList = cellstr(get(handles.ComPortType, 'String'));
+    idxCOM = find(strcmp(comList, 'COM'), 1);
+
+    if ~isempty(idxCOM)
+        set(handles.ComPortType, 'Value', idxCOM);
+    end
+
+    set(handles.ComPortName, 'String', '3');
+    set(handles.ComPortName, 'Enable', 'on');
+
 end
 
-guidata(hObject,handles);
+guidata(hObject, handles);
+
 
 % --- Executes during object creation, after setting all properties.
 function pm_name_CreateFcn(hObject, eventdata, handles)

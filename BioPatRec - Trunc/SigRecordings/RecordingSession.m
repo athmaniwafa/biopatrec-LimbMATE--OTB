@@ -166,17 +166,35 @@ handles.sT    = sT;
 % Setting for data peeking
 % Time window size
 % Window of 100 samples works usually well
-tW = 100/sF;
-if tW < 0.1
-	tW = 0.1; % to avoid delays due to graphics
+if contains(deviceName, 'OTB400')
+    tWs = 256; % Time window samples
+    tW = tWs/sF;
+
+else
+    tW = 100/sF;
+    if tW < 0.1
+	    tW = 0.1; % to avoid delays due to graphics
+    end
+    
+    if mod(sT,tW) > 0
+        errordlg('Please, the time window size must be a multiple of the recording time. Select a proper time window size!')
+        return
+    end
+    tWs           = tW*sF;   % Time window samples
 end
-if mod(sT,tW) > 0
-    errordlg('Please, the time window size must be a multiple of the recording time. Select a proper time window size!')
-    return
+
+handles.tWs = tWs;
+timeStamps = (0:tWs-1)/sF; % Create vector of time
+
+if contains(deviceName, 'OTB400')
+
+    nWindows = sT * sF / tWs;
+
+    if abs(nWindows - round(nWindows)) > 1e-9
+        error(['OTB400: recording time must be a multiple of %.3f seconds.'], tW);
+    end
+
 end
-tWs           = tW*sF;                                                 % Time window samples
-handles.tWs   = tWs;
-timeStamps    = 0:1/sF:tW-1/sF;                                        % Create vector of time
 
 %% Start the connection with Limb-MATE
 if (strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2')  || strcmp(deviceName, 'LM 3') || strcmp(deviceName, 'LM 14'))
@@ -241,25 +259,30 @@ if (strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2')  || strcmp(deviceNa
 end
 
 %% Start the connection with OTB (OT Bioelettronica EMG-USB2+)
+
+%% Start connection with OTB400
+
 if contains(deviceName, 'OTB400')
-    % Preallocate enough buffer to cover the whole session + margin
+
     otDuration = max(120, sTall + 20);
 
-    % Create and open the OT device (bipolar mode, matching the
-    % currently connected adapter). Change 'bipolar' to 'hd1' or
-    % 'hd2' if you plug in the corresponding adapter later.
-     if contains(deviceName, 'HD')
-        if handles.nCh == 64
-            objOT = OT_Acquire('hd1', handles.nCh, otDuration);
-        elseif handles.nCh == 128
-            objOT = OT_Acquire('hd2', handles.nCh, otDuration);
+    if contains(deviceName, 'HD')
+        % Read electrode configuration from GUI
+        if ~isfield(afeSettings, 'OTB400Electrodes')
+            error('OTB400 HD: electrode configuration missing.');
         end
 
-    else
-        objOT = OT_Acquire('bipolar', handles.nCh, otDuration);
-    end
+        electrodeConfig = afeSettings.OTB400Electrodes;
 
-    % Store on handles for later cleanup
+        objOT = OT_Acquire('hd', nCh, otDuration, electrodeConfig);
+
+        fprintf('OTB400 HD: %d channels configured\n', nCh);
+        disp(objOT.config);
+
+    else
+        % Bipolar acquisition
+        objOT = OT_Acquire('bipolar', nCh, otDuration);
+    end
     handles.objOT = objOT;
 end
 
@@ -397,7 +420,7 @@ drawnow;
 ex = 1;
 while ex <= nM
     
-    timeStamps = 0:1/sF:tW-1/sF;                                       % Timestamps used the time vector
+    timeStamps = (0:tWs-1)/sF;                                     % Timestamps used the time vector
     currentTv = 1;                                                     % Current time vector
     tV = timeStamps(currentTv):1/sF:(tW-1/sF)+timeStamps(currentTv);   % Time vector used for drawing graphics
     currentTv = currentTv - 1 + tWs;                                   % Updated everytime tV is updated

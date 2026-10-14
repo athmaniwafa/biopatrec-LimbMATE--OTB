@@ -38,7 +38,21 @@
 function obj = ConnectDevice(handles)
 
     deviceName  = handles.deviceName;
+
+    % OTB400 uses OTComm .NET, not MATLAB serial communication
+    if contains(deviceName, 'OTB400')
+    
+        if ~isfield(handles, 'objOT') || isempty(handles.objOT)
+            error('OTB400: device object not initialized.');
+        end
+    
+        obj = handles.objOT;
+        return;
+    
+    end
+
     ComPortType = handles.ComPortType;
+
     if strcmp(ComPortType, 'COM')
         ComPortName = handles.ComPortName;
     end
@@ -110,11 +124,6 @@ function obj = ConnectDevice(handles)
             obj = handles.objLM;
 
             pause(3)
-        end
-
-       %%%%% OTB (OT Bioelettronica EMG-USB2+) %%%%%
-        if contains(deviceName, 'OTB400')
-            obj = handles.objOT;
         end
     end     
 
