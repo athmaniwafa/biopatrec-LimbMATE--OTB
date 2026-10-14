@@ -224,21 +224,25 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         end
 
         %% Start the connection with OTB (OT Bioelettronica EMG-USB2+)
-        if strcmp(deviceName, 'OTB')
+        if contains(deviceName, 'OTB400')
             % Preallocate enough buffer to cover the whole session + margin
             otDuration = max(60, handles.sT + 10);
 
             % Create and open the OT device (bipolar mode, matching the
             % currently connected adapter). Change 'bipolar' to 'hd1' or
             % 'hd2' if you plug in the corresponding adapter later.
-            objOT = OT_Acquire('bipolar', handles.nCh, otDuration);
+            if contains(deviceName, 'HD')
+                objOT = OT_Acquire('hd1', handles.nCh, otDuration);
+            else
+                objOT = OT_Acquire('bipolar', handles.nCh, otDuration);
+            end
 
             handles.objOT = objOT;
         end
 
         % Connect the chosen device, it returns the connection object
         obj = ConnectDevice(handles);
-        if ~any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14','OTB'}))
+        if ~(any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'})) || contains(deviceName, 'OTB400'))
             if strcmp(get(obj,'Status'),'closed')   % Make sure port opened correctly
                 return;
             end
@@ -246,7 +250,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         
         % Set the selected device and Start the acquisition
         SetDeviceStartAcquisition(handles, obj);
-        if ~any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14','OTB'}))
+        if ~(any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'})) || contains(deviceName, 'OTB400'))
             if strcmp(get(obj,'Status'),'closed')   % StartAcquisition closes the port on failure
                 return;
             end
@@ -320,7 +324,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     end
 
     % Cleanup for OTB
-    if strcmp(deviceName, 'OTB')
+    if strcmp(deviceName, 'OTB400')
         if isfield(handles,'objOT') && ~isempty(handles.objOT)
             try
                 handles.objOT.disconnectBTdevice();

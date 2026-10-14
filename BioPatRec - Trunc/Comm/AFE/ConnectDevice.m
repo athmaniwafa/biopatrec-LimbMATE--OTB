@@ -113,13 +113,13 @@ function obj = ConnectDevice(handles)
         end
 
        %%%%% OTB (OT Bioelettronica EMG-USB2+) %%%%%
-        if strcmp(deviceName, 'OTB')
+        if contains(deviceName, 'OTB400')
             obj = handles.objOT;
         end
     end     
 
     % Open the connection if not Limb Mate and not OTB
-    if (~(strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName, 'LM 3') || strcmp(deviceName, 'LM 14') || strcmp(deviceName, 'OTB')) )
+    if (~(strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName, 'LM 3') || strcmp(deviceName, 'LM 14') || contains(deviceName, 'OTB400')) )
         % Open the connection
         fopen(obj);
     

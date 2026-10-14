@@ -520,15 +520,33 @@ elseif strcmp(deviceName, 'ALC-24chs')
 end
 
 % ---- OTB (OT Bioelettronica EMG-USB2+) settings ----
-if strcmp(deviceName, 'OTB')
-    set(handles.et_chs, 'String', '4');
+if contains(deviceName, 'OTB400')
+    if contains(deviceName, 'HD')
+            choice = questdlg('Select number of channels:', ...
+                              'OTB400 HD', ...
+                              '64', '128', '64');
+    
+        if isempty(choice)
+            return;
+        end
+    
+        handles.nCh = str2double(choice);
+        handles.vCh = 1:handles.nCh;
+    
+        set(handles.et_chs, 'String', choice);
+    
+        fprintf('Selected channels: %d\n', handles.nCh);
+    else % BIPOLAR
+        set(handles.et_chs, 'String', '8');
+    end
     srList = cellstr(get(handles.pm_sampleRate, 'String'));
     if ~any(strcmp(srList, '2048'))
         srList = [srList(:); {'2048'}];
         set(handles.pm_sampleRate, 'String', srList);
     end
     set(handles.pm_sampleRate, 'Value', numel(srList));
-    set(handles.ComPortType, 'Value', 1);   % COM
+    set(handles.ComPortType, 'Value', 3);   % COM
+    set(handles.ComPortName, 'String', 3);  % Port N 3
 end
 
 guidata(hObject,handles);
@@ -544,7 +562,7 @@ function pm_name_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
-deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LM 1', 'LM 2', 'LM 3', 'LM 14' , 'OTB'};
+deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LM 1', 'LM 2', 'LM 3', 'LM 14' , 'OTB400_HD', 'OTB400_bipolar'};
 
 set(hObject,'String',deviceNames);
 set(hObject,'Value',5);

@@ -189,7 +189,7 @@ function [cData, error] = Acquire_tWs(deviceName, obj, nCh, tWs, compressionEnab
        end
 
        %%%%% OTB (OT Bioelettronica EMG-USB2+) %%%%%
-       if strcmp(deviceName, 'OTB')
+       if contains(deviceName, 'OTB400')
 
            % Our wrapper already returns [tWs x nCh], no transpose needed
            cData = obj.getEMG_data_TW_float(tWs);

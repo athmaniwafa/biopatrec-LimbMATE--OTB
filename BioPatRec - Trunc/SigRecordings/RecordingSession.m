@@ -241,14 +241,23 @@ if (strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2')  || strcmp(deviceNa
 end
 
 %% Start the connection with OTB (OT Bioelettronica EMG-USB2+)
-if strcmp(deviceName, 'OTB')
+if contains(deviceName, 'OTB400')
     % Preallocate enough buffer to cover the whole session + margin
     otDuration = max(120, sTall + 20);
 
     % Create and open the OT device (bipolar mode, matching the
     % currently connected adapter). Change 'bipolar' to 'hd1' or
     % 'hd2' if you plug in the corresponding adapter later.
-    objOT = OT_Acquire('bipolar', nCh, otDuration);
+     if contains(deviceName, 'HD')
+        if handles.nCh == 64
+            objOT = OT_Acquire('hd1', handles.nCh, otDuration);
+        elseif handles.nCh == 128
+            objOT = OT_Acquire('hd2', handles.nCh, otDuration);
+        end
+
+    else
+        objOT = OT_Acquire('bipolar', handles.nCh, otDuration);
+    end
 
     % Store on handles for later cleanup
     handles.objOT = objOT;
@@ -732,7 +741,7 @@ if strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName
 end
 
 % Cleanup for OTB
-if strcmp(deviceName, 'OTB')
+if contains(deviceName, 'OTB400')
     if isfield(handles,'objOT') && ~isempty(handles.objOT)
         try
             handles.objOT.disconnectBTdevice();

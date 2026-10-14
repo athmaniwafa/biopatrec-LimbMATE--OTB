@@ -454,7 +454,7 @@ function handles = SetDeviceStartAcquisition(handles, obj)
         obj.startAcquisitionEMG(enable_dataTransmission, active_channels_encoded, samples_tw_encoded, samples_tw_overlap_encoded);
 
     %%%%% OTB (OT Bioelettronica EMG-USB2+) %%%%%
-    elseif strcmp(deviceName, 'OTB')
+    elseif contains(deviceName, 'OTB400')
 
         obj.startAcquisitionEMG();
         set(handles.t_msg, 'String', 'OTB Start');

@@ -80,7 +80,7 @@ function StopAcquisition(deviceName, obj)
     end
 
     %%%%% OTB (OT Bioelettronica EMG-USB2+) %%%%%
-    if strcmp(deviceName, 'OTB')
+    if contains(deviceName, 'OTB400')
         obj.stopAcquisitionEMG();
     end
         
