@@ -85,5 +85,13 @@ function DataShow(handles, cdata, sF, sT)
     xlim(handles.a_f0, [0,sF/2]);
     ymax =  ampPP * nCh;
     ylim(handles.a_f0, [ymin ymax]);
-       
+
+    % Ricollega la mappa ai tracciati appena ricreati.
+    mainFig = ancestor(handles.a_t0, 'figure');
+    
+    if isappdata(mainFig, 'OTBRecordingRefresh')
+        refreshMap = getappdata(mainFig, 'OTBRecordingRefresh');
+        refreshMap();
+    end
+           
 end
