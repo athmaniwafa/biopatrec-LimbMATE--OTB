@@ -1,6 +1,11 @@
 function panel = OTB400_OpenRecordingMap(afeSettings, h)
 
 panel = [];
+if ~isfield(h,'a_t0') || ~isscalar(h.a_t0) || ...
+        ~isgraphics(h.a_t0,'axes')
+    error('OTB400:InvalidGUI', ...
+        'Chiudi e riapri la finestra di registrazione.');
+end
 mainFig = ancestor(h.a_t0, 'figure');
 
 % Rimuove il pannello della registrazione precedente.
@@ -27,10 +32,19 @@ panel = uipanel( ...
     'Position', [0.005 0.02 0.25 0.34], ...
     'Title', 'Elettrodi HD');
 
+filterButton = uicontrol( ...
+    'Parent',panel, ...
+    'Style','togglebutton', ...
+    'Units','normalized', ...
+    'Position',[0.05 0.86 0.90 0.10], ...
+    'String','Solo selezionati', ...
+    'Value',0, ...
+    'Callback',@onFilter);
+
 mapAx = axes( ...
     'Parent', panel, ...
     'Units', 'normalized', ...
-    'Position', [0.05 0.06 0.90 0.84]);
+    'Position', [0.05 0.06 0.90 0.72]);
 
 OTB400_ChannelMap('install', mainFig, mapAx, ...
     afeSettings.channels, afeSettings.OTB400Electrodes);
@@ -53,6 +67,16 @@ set(mainFig, 'WindowButtonMotionFcn', @onMotion);
 % Permette di ricollegare le linee quando DataShow le ricrea.
 setappdata(mainFig, 'OTBRecordingRefresh', @highlightTrace);
 
+    function onFilter(src,~)
+        if get(src,'Value')
+            set(src,'String','Mostra tutti');
+        else
+            set(src,'String','Solo selezionati');
+        end
+
+        highlightTrace();
+    end
+
     function onMotion(src, evt)
         if ~isgraphics(panel)
             return
@@ -73,6 +97,8 @@ setappdata(mainFig, 'OTBRecordingRefresh', @highlightTrace);
         if isfield(state,'marked')
             marked = state.marked;
         end
+
+        onlySelected = logical(get(filterButton,'Value'));
         
         % Aggiunge l'anteprima del canale sotto il mouse.
         active = marked;
@@ -92,6 +118,12 @@ setappdata(mainFig, 'OTBRecordingRefresh', @highlightTrace);
         for k = 1:numel(traces)
             lineHandle = traces(k);
 
+            if onlySelected && ~marked(k)
+                set(lineHandle,'Visible','off');
+            else
+                set(lineHandle,'Visible','on');
+            end
+
             if ~isappdata(lineHandle, 'OTBOriginalStyle')
                 style = struct( ...
                     'Color', get(lineHandle, 'Color'), ...
@@ -105,6 +137,18 @@ setappdata(mainFig, 'OTBRecordingRefresh', @highlightTrace);
                 set(lineHandle, 'Color', [0.90 0.10 0.10], 'LineWidth', 2);
             else
                 set(lineHandle, 'Color', style.Color, 'LineWidth', style.LineWidth);
+            end
+        end
+
+        frequencyLines = flipud(findobj(h.a_f0,'Type','line'));
+
+        if numel(frequencyLines) == numel(marked)
+            for k = 1:numel(frequencyLines)
+                if onlySelected && ~marked(k)
+                    set(frequencyLines(k),'Visible','off');
+                else
+                    set(frequencyLines(k),'Visible','on');
+                end
             end
         end
 

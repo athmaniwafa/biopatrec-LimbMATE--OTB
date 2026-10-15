@@ -597,7 +597,7 @@ end
 
 
 function cmRemove(fig)
-    if ~ishghandle(fig) || ~isappdata(fig,'OTB400_ChannelMapState')
+    if ~isscalar(fig) || ~isgraphics(fig,'figure') || ~isappdata(fig,'OTB400_ChannelMapState')
         return;
     end
     st=getappdata(fig,'OTB400_ChannelMapState');
