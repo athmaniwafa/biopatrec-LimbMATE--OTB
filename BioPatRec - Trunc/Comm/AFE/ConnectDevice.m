@@ -51,6 +51,15 @@ function obj = ConnectDevice(handles)
     
     end
 
+    % Sessantaquattro+ uses a TCP socket, not MATLAB serial communication
+    if strcmp(deviceName, 'SQ+')
+        if ~isfield(handles, 'objSQ') || isempty(handles.objSQ)
+            error('SQ+: device object not initialized.');
+        end
+        obj = handles.objSQ;
+        return;
+    end
+
     ComPortType = handles.ComPortType;
 
     if strcmp(ComPortType, 'COM')
@@ -127,8 +136,8 @@ function obj = ConnectDevice(handles)
         end
     end     
 
-    % Open the connection if not Limb Mate and not OTB
-    if (~(strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName, 'LM 3') || strcmp(deviceName, 'LM 14') || contains(deviceName, 'OTB400')) )
+    % Open the connection if not Limb Mate, OTB400, or SQ+
+    if (~(strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName, 'LM 3') || strcmp(deviceName, 'LM 14') || contains(deviceName, 'OTB400') || strcmp(deviceName, 'SQ+')) )
         % Open the connection
         fopen(obj);
     

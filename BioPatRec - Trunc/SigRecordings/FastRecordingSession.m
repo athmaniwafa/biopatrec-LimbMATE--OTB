@@ -259,9 +259,16 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
             handles.objOT = objOT;
         end
 
+        %% Start the connection with Sessantaquattro+ (TCP)
+        if strcmp(deviceName, 'SQ+')
+            sqDuration = max(60, handles.sT + 10);
+            objSQ = Sessantaquattro_Acquire(handles.nCh, sqDuration, 45454);
+            handles.objSQ = objSQ;
+        end
+
         % Connect the chosen device, it returns the connection object
         obj = ConnectDevice(handles);
-        if ~(any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'})) || contains(deviceName, 'OTB400'))
+        if ~(any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'})) || contains(deviceName, 'OTB400') || strcmp(deviceName, 'SQ+'))
             if strcmp(get(obj,'Status'),'closed')   % Make sure port opened correctly
                 return;
             end
@@ -269,7 +276,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         
         % Set the selected device and Start the acquisition
         SetDeviceStartAcquisition(handles, obj);
-        if ~(any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'})) || contains(deviceName, 'OTB400'))
+        if ~(any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'})) || contains(deviceName, 'OTB400') || strcmp(deviceName, 'SQ+'))
             if strcmp(get(obj,'Status'),'closed')   % StartAcquisition closes the port on failure
                 return;
             end
@@ -283,9 +290,9 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
                 acceleGlove.update();
             end
             
-            if contains(deviceName, 'OTB400')
+            if contains(deviceName, 'OTB400') || strcmp(deviceName, 'SQ+')
             
-                % Read data directly from OT_Acquire
+                % Read data directly from the wrapper class
                 cdata = obj.getEMG_data_TW_float(tWs);
             
                 acquisitionError = 0;
@@ -369,6 +376,18 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
                 fprintf('OT cleanup warning: %s\n', ME.message);
             end
             handles.objOT = [];
+        end
+    end
+
+    % Cleanup for Sessantaquattro+
+    if strcmp(deviceName, 'SQ+')
+        if isfield(handles,'objSQ') && ~isempty(handles.objSQ)
+            try
+                handles.objSQ.disconnectBTdevice();
+            catch ME
+                fprintf('SQ cleanup warning: %s\n', ME.message);
+            end
+            handles.objSQ = [];
         end
     end
 

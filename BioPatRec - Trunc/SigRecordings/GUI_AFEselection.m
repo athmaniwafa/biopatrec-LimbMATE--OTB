@@ -392,6 +392,12 @@ if ~any(strcmp(existing, '2048'))
     set(hObject, 'String', [existing(:); {'2048'}]);
 end
 
+% Also ensure '2000' for the Sessantaquattro+
+existing = cellstr(get(hObject, 'String'));
+if ~any(strcmp(existing, '2000'))
+    set(hObject, 'String', [existing(:); {'2000'}]);
+end
+
 %%The function below detects the available COM porst, I just leave it there
 %%for now in case that we need it. 
 % --- Executes on selection change in ComPortType0.
@@ -617,6 +623,30 @@ if contains(deviceName, 'OTB400')
 
 end
 
+% ---- Sessantaquattro+ (TCP) settings ----
+if strcmp(deviceName, 'SQ+')
+    handles.nCh = 16;
+    handles.vCh = 1:16;
+    set(handles.et_chs, 'String', '16');
+
+    srList = cellstr(get(handles.pm_sampleRate, 'String'));
+    idxSR = find(strcmp(srList, '2000'), 1);
+    if isempty(idxSR)
+        srList{end+1} = '2000';
+        set(handles.pm_sampleRate, 'String', srList);
+        idxSR = numel(srList);
+    end
+    set(handles.pm_sampleRate, 'Value', idxSR);
+
+    comList = cellstr(get(handles.ComPortType, 'String'));
+    idxCOM = find(strcmp(comList, 'COM'), 1);
+    if ~isempty(idxCOM)
+        set(handles.ComPortType, 'Value', idxCOM);
+    end
+    set(handles.ComPortName, 'String', '3');
+    set(handles.ComPortName, 'Enable', 'on');
+end
+
 guidata(hObject, handles);
 
 
@@ -631,7 +661,7 @@ function pm_name_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
-deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LM 1', 'LM 2', 'LM 3', 'LM 14' , 'OTB400_HD', 'OTB400_bipolar'};
+deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LM 1', 'LM 2', 'LM 3', 'LM 14' , 'OTB400_HD', 'OTB400_bipolar', 'SQ+'};
 
 set(hObject,'String',deviceNames);
 set(hObject,'Value',5);

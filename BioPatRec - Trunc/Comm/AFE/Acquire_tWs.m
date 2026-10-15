@@ -194,6 +194,10 @@ function [cData, error] = Acquire_tWs(deviceName, obj, nCh, tWs, compressionEnab
            % Our wrapper already returns [tWs x nCh], no transpose needed
            cData = obj.getEMG_data_TW_float(tWs);
        end
+              %%%%% Sessantaquattro+ (TCP) %%%%%
+       if strcmp(deviceName, 'SQ+')
+           cData = obj.getEMG_data_TW_float(tWs);
+       end
    
     catch exception
        fprintf('ACQUIRE_TWS REAL ERROR: %s\n', exception.message);

@@ -458,6 +458,10 @@ function handles = SetDeviceStartAcquisition(handles, obj)
 
         obj.startAcquisitionEMG();
         set(handles.t_msg, 'String', 'OTB Start');
-    end
+    
+        %%%%% Sessantaquattro+ (TCP) %%%%%
+    elseif strcmp(deviceName, 'SQ+')
+        obj.startAcquisitionEMG();
+        set(handles.t_msg, 'String', 'SQ+ Start');
     
 end

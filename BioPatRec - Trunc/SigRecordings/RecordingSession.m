@@ -100,7 +100,7 @@ nM           = varargin{1};
 nR           = varargin{2};
 cT           = varargin{3};
 rT           = varargin{4};
-mov          = varargin{5};
+% mov          = varargin{5};
 handles      = varargin{6};
 afeSettings  = varargin{7};
 trainWithVr  = varargin{8};
@@ -168,6 +168,10 @@ handles.sT    = sT;
 % Window of 100 samples works usually well
 if contains(deviceName, 'OTB400')
     tWs = 256; % Time window samples
+    tW = tWs/sF;
+
+elseif strcmp(deviceName, 'SQ+')
+    tWs = 400; % 200 ms at 2000 Hz
     tW = tWs/sF;
 
 else
@@ -258,8 +262,6 @@ if (strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2')  || strcmp(deviceNa
             objLM.packages_per_TW, objLM.packages_per_TW_increment);
 end
 
-%% Start the connection with OTB (OT Bioelettronica EMG-USB2+)
-
 %% Start connection with OTB400
 
 if contains(deviceName, 'OTB400')
@@ -284,6 +286,13 @@ if contains(deviceName, 'OTB400')
         objOT = OT_Acquire('bipolar', nCh, otDuration);
     end
     handles.objOT = objOT;
+end
+
+%% Start connection with Sessantaquattro+ (TCP)
+if strcmp(deviceName, 'SQ+')
+    sqDuration = max(120, sTall + 20);
+    objSQ = Sessantaquattro_Acquire(nCh, sqDuration, 45454);
+    handles.objSQ = objSQ;
 end
 
 % Safely assign handles.objLM even when the LM branch did not run
@@ -610,7 +619,14 @@ while ex <= nM
                 if useAcceleGlove
                     acceleGlove.update();
                 end
-                [cData, error] = Acquire_tWs(deviceName, obj, nCh, tWs, compressData);    % acquire a new time window of samples
+
+                if contains(deviceName, 'OTB400') || strcmp(deviceName, 'SQ+')
+                    cData = obj.getEMG_data_TW_float(tWs);
+                    error = 0;
+                else
+                    [cData, error] = Acquire_tWs(deviceName, obj, nCh, tWs, compressData);    % acquire a new time window of samples
+                end
+
                 acquireEvent.Data = cData;
             
                 % Wait up to 100ms for data from AcceleGlove, if timeout
@@ -772,6 +788,18 @@ if contains(deviceName, 'OTB400')
             fprintf('OT cleanup warning: %s\n', ME.message);
         end
         handles.objOT = [];
+    end
+end
+
+% Cleanup for Sessantaquattro+
+if strcmp(deviceName, 'SQ+')
+    if isfield(handles,'objSQ') && ~isempty(handles.objSQ)
+        try
+            handles.objSQ.disconnectBTdevice();
+        catch ME
+            fprintf('SQ cleanup warning: %s\n', ME.message);
+        end
+        handles.objSQ = [];
     end
 end
 
