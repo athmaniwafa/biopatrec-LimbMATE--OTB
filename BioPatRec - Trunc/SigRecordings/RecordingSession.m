@@ -111,6 +111,8 @@ useLeg      = varargin{12};
 rampStatus   = varargin{13};
 saveRec     = true;
 
+handles.OTBRecordingMap = OTB400_OpenRecordingMap(afeSettings, handles);
+
 if sum(strcmp(varargin,'replace')) > 0
     saveRec = false;
 end
@@ -394,7 +396,13 @@ ypatch = [0 0 1 1];
 axes(handles.a_prog);
 axis(handles.a_prog,'off');
 set(handles.a_prog,'XLimMode','manual');
-handles.hPatch = patch(xpatch,ypatch,'b','EdgeColor','b','visible','on');
+handles.hPatch = patch( ...
+    'Parent', handles.a_prog, ...
+    'XData', xpatch, ...
+    'YData', ypatch, ...
+    'FaceColor', 'b', ...
+    'EdgeColor', 'b', ...
+    'Visible', 'on');
 drawnow update
 
 % Allocation of resource to improve speed, total data

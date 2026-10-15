@@ -13,11 +13,9 @@ function [electrodes, ok] = OTB400_SelectElectrodes(nCh)
         error('Invalid channel count. Choose 64 or 128.');
     end
 
-    % Load electrode images
-    imgFolder = fullfile(fileparts(mfilename('fullpath')), 'Img');
-
-    imgBig = imread(fullfile(imgFolder, 'OTB400_HD_big.png'));
-    imgSmall = imread(fullfile(imgFolder, 'OTB400_HD_small.png'));
+    % Resolve images without depending on MATLAB's current folder.
+    imgBig = OTB400_ElectrodeImagePath('BIG');
+    imgSmall = OTB400_ElectrodeImagePath('SMALL');
 
     nInputs = numel(inputs);
 
@@ -51,18 +49,14 @@ function [electrodes, ok] = OTB400_SelectElectrodes(nCh)
             'Units', 'pixels', ...
             'Position', [25 65 250 120]);
 
-        image(ax1, imgBig);
-        axis(ax1, 'image');
-        axis(ax1, 'off');
+        showElectrodeImage(ax1, imgBig, 'BIG', '8 x 8');
 
         % SMALL electrode image
         ax2 = axes('Parent', p, ...
             'Units', 'pixels', ...
             'Position', [345 65 250 120]);
 
-        image(ax2, imgSmall);
-        axis(ax2, 'image');
-        axis(ax2, 'off');
+        showElectrodeImage(ax2, imgSmall, 'SMALL', '13 x 5');
 
         % Exclusive selection group
         bg = uibuttongroup( ...
@@ -140,4 +134,17 @@ function [electrodes, ok] = OTB400_SelectElectrodes(nCh)
         uiresume(d);
     end
 
+end
+
+function showElectrodeImage(ax, imagePath, sensorType, geometry)
+    if ~isempty(imagePath)
+        image(ax, imread(imagePath));
+        axis(ax, 'image');
+    else
+        % The electrode choice remains available if reference images are absent.
+        text(ax, 0.5, 0.5, {sensorType, geometry, '64 elettrodi'}, ...
+            'Units', 'normalized', ...
+            'HorizontalAlignment', 'center', 'FontSize', 12);
+    end
+    axis(ax, 'off');
 end

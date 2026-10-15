@@ -87,6 +87,16 @@ if(isempty(allData))                                                   % Fist DA
     plotGain = 10000000;
 end
 tempData = event.Data;
+
+if isfield(handles, 'OTBRecordingMap') && isgraphics(handles.OTBRecordingMap)
+
+    mapAx = getappdata(handles.OTBRecordingMap, 'RecordingMapAxes');
+
+    if isgraphics(mapAx, 'axes') && ~isempty(tempData)
+        OTB400_ChannelMap('preview', mapAx, tempData);
+    end
+end
+
 allData = [allData; tempData];
 timeStamps = [timeStamps; event.TimeStamps];
 
@@ -119,7 +129,21 @@ else
         end
     end
 end
-set(handles.hPatch,'Xdata',[0 x x 0]);
+if ~isfield(handles,'hPatch') || ...
+        ~isscalar(handles.hPatch) || ...
+        ~isgraphics(handles.hPatch,'patch') || ...
+        ~isequal(get(handles.hPatch,'Parent'), handles.a_prog)
+
+    handles.hPatch = patch( ...
+        'Parent', handles.a_prog, ...
+        'XData', [0 x x 0], ...
+        'YData', [0 0 1 1], ...
+        'FaceColor', 'b', ...
+        'EdgeColor', 'b', ...
+        'Visible', 'on');
+else
+    set(handles.hPatch,'XData',[0 x x 0]);
+end
 
 
 if rampStatus
@@ -212,6 +236,16 @@ if strcmp(plotType,'Bar Chart')
     set(handles.a_t0,'XTick',offVector);
     set(handles.a_t0,'XTickLabel',0:nCh-1);
 end
+
+% Riapplica la selezione dopo ogni aggiornamento RT.
+mainFig = ancestor(handles.a_t0,'figure');
+
+if strcmp(plotType,'Raw Signal') && ...
+        isappdata(mainFig,'OTBRecordingRefresh')
+    refreshTrace = getappdata(mainFig,'OTBRecordingRefresh');
+    refreshTrace();
+end
+
 drawnow expose
 
 end

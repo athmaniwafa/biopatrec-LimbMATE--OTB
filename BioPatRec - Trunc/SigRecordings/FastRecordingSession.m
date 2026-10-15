@@ -47,6 +47,8 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     handles      = varargin{1};
     afeSettings  = varargin{2};
 
+    handles.OTBRecordingMap = OTB400_OpenRecordingMap(afeSettings, handles);
+
     % Get required informations from afeSettings structure
     nCh          = afeSettings.channels;
     sF           = afeSettings.sampleRate;
@@ -150,8 +152,14 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     ypatch = [0 0 1 1];
     axes(handles.a_prog);
     axis(handles.a_prog,'off');
-    set(handles.a_prog,'XLimMode','manual');
-    handles.hPatch = patch(xpatch,ypatch,'b','EdgeColor','b','visible','on');
+    set(handles.a_prog, 'XLim',[0 1], 'YLim',[0 1], 'XLimMode','manual', 'YLimMode','manual');
+    handles.hPatch = patch( ...
+    'Parent', handles.a_prog, ...
+    'XData', xpatch, ...
+    'YData', ypatch, ...
+    'FaceColor', 'b', ...
+    'EdgeColor', 'b', ...
+    'Visible', 'on');
     drawnow update % 2014b figure updates
 
     % Allocation of resource to improve speed, total data 
@@ -290,7 +298,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
             end
         end
         
-        samplesCounter = 1;
+        samplesCounter = 0;
 
         tic
         for timeWindowNr = 1:sT/tW
@@ -334,6 +342,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
                 end
             end
             
+            samplesCounter = samplesCounter + size(cdata,1);
             RecordingSession_ShowData(0, acquireEvent);            % plot data and add cData to allData vector
 %             samplesCounter = samplesCounter + tWs;
         end

@@ -159,6 +159,19 @@ function t_load_ClickedCallback(hObject, eventdata, handles)
             set(handles.t_msg,'String','cData loaded')      % Show message about acquisition                
         elseif exist('recSession','var')    % Load session
             handles.recSession = recSession;
+            if isfield(recSession,'OTB400Electrodes') && ...
+                    isfield(recSession,'nCh') && ismember(recSession.nCh,[64 128])
+                OTB400_ChannelMap('install',handles.figure1,handles.a_t0, ...
+                    recSession.nCh,recSession.OTB400Electrodes);
+                set(handles.et_rows,'String','8');
+                set(handles.et_columns,'String',num2str(recSession.nCh/8));
+                if isfield(recSession,'OTB400VisibleChannels')
+                    OTB400_ChannelMap('setmask',handles.figure1, ...
+                        logical(recSession.OTB400VisibleChannels));
+                end
+            else
+                OTB400_ChannelMap('remove',handles.figure1);
+            end
             guidata(hObject, handles);    
             set(handles.t_msg,'String','recSession loaded')      % Show message about acquisition    
         end
@@ -622,7 +635,10 @@ function labels = watershedSegment(iData)
 function showChannelNumbers(hObject)
     % Get handles structure
     handles = guidata(hObject);
-    
+    % The HD helper already writes local electrode numbers on the map.
+    if isappdata(handles.figure1,'OTB400_ChannelMapState')
+        return
+    end
     % Select figure,
     axes(handles.a_t0);
     
@@ -722,12 +738,15 @@ function startRecording(handles, afeSettings)
             end
     
             electrodes = afeSettings.OTB400Electrodes;
-    
-            objOT = OT_Acquire('hd', nCh, [], electrodes);
+            OTB400_ChannelMap('install',handles.figure1,handles.a_t0,nCh,electrodes);
+            set(handles.et_rows,'String','8');
+            set(handles.et_columns,'String',num2str(nCh/8));
+            objOT = OT_Acquire('hd', nCh, max(60,sT+10), electrodes);
     
         else
     
-            objOT = OT_Acquire('bipolar', nCh);
+            OTB400_ChannelMap('remove',handles.figure1);
+            objOT = OT_Acquire('bipolar', nCh, max(60,sT+10));
     
         end
     
@@ -735,7 +754,8 @@ function startRecording(handles, afeSettings)
     
         % Close device even if this function exits due to an error
         otCleanup = onCleanup(@() objOT.disconnectBTdevice());
-    
+    else
+        OTB400_ChannelMap('remove',handles.figure1);
     end
 
     
@@ -747,22 +767,36 @@ function startRecording(handles, afeSettings)
 
     % Collect data
     if ~cont % Non-continuous mode
-        cDataAll = zeros(sT*sF, nCh);
-
-        for timeWindowNr = 1:sT/tW
-            [cData, error] = Acquire_tWs(deviceName, obj, nCh, nThisWindow, compressData);    % acquire a new time window of samples  
+        if contains(deviceName,'OTB400')
+            nTotal = round(sT*sF);
+            nWindows = ceil(nTotal/tWs);
+        else
+            nTotal = sT*sF;              % Original behaviour for other devices
+            nWindows = sT/tW;
+        end
+        cDataAll = zeros(nTotal, nCh);
+        for timeWindowNr = 1:nWindows
+            firstSample = (timeWindowNr-1)*tWs+1;
+            if contains(deviceName,'OTB400')
+                nThisWindow = min(tWs,nTotal-firstSample+1);
+            else
+                nThisWindow = tWs;
+            end
+            [cData, error] = Acquire_tWs(deviceName, obj, nCh, nThisWindow, compressData);
             if error == 1
                 errordlg('Error occurred during the acquisition!','Error');
                 return
             end
-
-            cDataAll(firstSample:firstSample+nThisWindow-1, :) = cData;
-
+            cDataAll(firstSample:firstSample+nThisWindow-1,:)=cData;
             if live
                 previewTw(handles.a_t0,cData, rows, cols);
             end
             % Show current recording time
-            cT = (firstSample + nThisWindow - 1) / sF;
+            if contains(deviceName,'OTB400')
+                cT = (firstSample+nThisWindow-1)/sF;
+            else
+                cT = timeWindowNr*tW;
+            end
             tT = sT;
             cT = [num2str(floor(cT/60)) ':' num2str(floor(mod(cT,60)),'%02d')];
             tT = [num2str(floor(tT/60)) ':' num2str(floor(mod(tT,60)),'%02d')];
@@ -797,6 +831,12 @@ function startRecording(handles, afeSettings)
     handles.recSession.sT = sT;
     handles.recSession.nCh = nCh;
     handles.recSession.tdata = cDataAll;
+    if contains(deviceName,'OTB400_HD')
+        handles.recSession.OTB400Electrodes = afeSettings.OTB400Electrodes;
+        handles.recSession.deviceName = char(deviceName);
+        handles.recSession.OTB400VisibleChannels = ...
+            OTB400_ChannelMap('mask',handles.figure1);
+    end
     guidata(handles.figure1, handles);
 
     % Stop acquisition
@@ -894,21 +934,25 @@ function preprocessMovie(hObject)
                 tempData = ApplyButterFilter(recSession.sF, fOrder, fLp, fHp, tempData);
             end
 
-            % Compute Image
-            iData = zeros(r,c);
-            cIdx = 1;
-            for i = 1 : c
-                for j = 1 : r
-                    if cIdx <= recSession.nCh
-                        feature = GetSigFeatures(tempData(:,cIdx), recSession.sF, {fID});
-                        iData(j,i) = feature.(fID);
-                        cIdx = cIdx+1;
-                    else
-                        break;
+            % Compute Image (physical numbering for OTB400 HD)
+            if isappdata(handles.figure1,'OTB400_ChannelMapState')
+                iData = OTB400_ChannelMap('features',handles.figure1, ...
+                    tempData,recSession.sF,fID);
+            else
+                iData = zeros(r,c);
+                cIdx = 1;
+                for i = 1 : c
+                    for j = 1 : r
+                        if cIdx <= recSession.nCh
+                            feature = GetSigFeatures(tempData(:,cIdx), recSession.sF, {fID});
+                            iData(j,i) = feature.(fID);
+                            cIdx = cIdx+1;
+                        else
+                            break;
+                        end
                     end
                 end
             end
-            
             if useWs
                labels = watershedSegment(iData); % Segment image
                for label = unique(labels)' % Average over each label
@@ -1064,9 +1108,14 @@ function showFrame(pbTimer)
   
     % Display image data for current frame
     axes(movieSession.axes);
-    imagesc(movieSession.frames(movieSession.cF).img,...
+    if isappdata(ancestor(movieSession.axes,'figure'),'OTB400_ChannelMapState')
+        OTB400_ChannelMap('render',movieSession.axes, ...
+            movieSession.frames(movieSession.cF).img, ...
             movieSession.frames(movieSession.cF).lim);
-    
+    else
+        imagesc(movieSession.frames(movieSession.cF).img,...
+                movieSession.frames(movieSession.cF).lim);
+    end
     % Display name of movement
     handles = guidata(movieSession.axes);
     set(handles.t_msg,'String',movieSession.frames(movieSession.cF).msg)
@@ -1086,6 +1135,10 @@ function showFrame(pbTimer)
     updateSlider(movieSession.axes);
 
 function previewTw(ax,twData, rows, cols)
+    if isappdata(ancestor(ax,'figure'),'OTB400_ChannelMapState')
+        OTB400_ChannelMap('preview',ax,twData);
+        return
+    end
     % Compute Image
     iData = zeros(rows,cols);
     cIdx = 1;
