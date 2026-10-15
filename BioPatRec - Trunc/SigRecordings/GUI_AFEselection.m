@@ -625,14 +625,14 @@ end
 
 % ---- Sessantaquattro+ (TCP) settings ----
 if strcmp(deviceName, 'SQ+')
-    handles.nCh = 16;
-    handles.vCh = 1:16;
-    set(handles.et_chs, 'String', '16');
+    handles.nCh = 8;
+    handles.vCh = 1:8;
+    set(handles.et_chs, 'String', '8');
 
     srList = cellstr(get(handles.pm_sampleRate, 'String'));
-    idxSR = find(strcmp(srList, '2000'), 1);
+    idxSR = find(strcmp(srList, '1000'), 1);
     if isempty(idxSR)
-        srList{end+1} = '2000';
+        srList{end+1} = '1000';
         set(handles.pm_sampleRate, 'String', srList);
         idxSR = numel(srList);
     end

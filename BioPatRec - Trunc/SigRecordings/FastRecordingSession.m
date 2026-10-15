@@ -83,16 +83,24 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     handles.plotType    = afeSettings.plotType;
     
     % Setting for data peeking
+        % Setting for data peeking
     sT            = handles.sT;
     handles.sT    = sT;
     handles.sTall = sT;
+
     if contains(deviceName, 'OTB400')
         tWs = 256;
         tW = tWs / sF;
+    elseif strcmp(deviceName, 'SQ+')
+        tWs = 200;   % 200 ms at 1000 Hz
+        tW = tWs / sF;
     else
         tW = handles.tW;
-        tWs = round(tW*sF);                 % ensure integer
+        tWs = round(tW*sF);
     end
+
+    handles.tWs = tWs; % Time window samples
+    timeStamps = (0:tWs-1)/sF;          % Create vector of time
     
     handles.tWs = tWs; % Time window samples
     timeStamps = (0:tWs-1)/sF;          % Create vector of time                                  

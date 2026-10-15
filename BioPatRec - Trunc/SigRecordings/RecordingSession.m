@@ -171,7 +171,7 @@ if contains(deviceName, 'OTB400')
     tW = tWs/sF;
 
 elseif strcmp(deviceName, 'SQ+')
-    tWs = 400; % 200 ms at 2000 Hz
+    tWs = 200; % 200 ms at 1000 Hz
     tW = tWs/sF;
 
 else
