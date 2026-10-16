@@ -107,6 +107,10 @@ handles.varargin = varargin;
 % Choose default command line output for GUI_AFEselection
 handles.output = hObject;
 
+% Initialize the LM connection field
+handles.objLM  = [];
+handles.lmName = '';
+
 % Update handles structure
 guidata(hObject, handles);
 
@@ -164,6 +168,23 @@ selDev = get(handles.pm_name,'Value');
 AFE_settings.name = dev(selDev);
 deviceName = AFE_settings.name;
 
+% ---- LimbMate: ensure a connection exists, auto-open dialog if not ----
+% ---- LimbMate: ensure a connection exists, auto-open dialog if not ----
+if strcmp(deviceName, 'LimbMate')
+    if ~isfield(handles, 'objLM') || isempty(handles.objLM)
+        result = LimbMateDialog();
+        if ~result.connected
+            return;
+        end
+        handles.objLM  = result.objLM;
+        handles.lmName = result.lmName;
+        handles.lmPort = result.port;
+        guidata(hObject, handles);
+    end
+    deviceName = {handles.lmName};
+    AFE_settings.name = deviceName;
+end
+
 
 %% Sampling frequency 
 contents = cellstr(get(handles.pm_sampleRate, 'String'));
@@ -208,6 +229,14 @@ if strcmp(AFE_settings.ComPortType,'COM')
         AFE_settings.ComPortName=strcat(ComPortType,ComPortName);
     else
         AFE_settings.ComPortName=ComPortName;
+    end
+end
+
+% ---- If we connected via the LimbMATE dialog, use the real port ----
+if strcmp(deviceName{1}, 'LM') || (isfield(handles,'lmPort') && ~isempty(handles.lmPort))
+    if isfield(handles,'lmPort') && ~isempty(handles.lmPort)
+        AFE_settings.ComPortType = 'COM';
+        AFE_settings.ComPortName = handles.lmPort;
     end
 end
 
@@ -383,9 +412,7 @@ if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgr
 end
 
 % ---------------------------------------------------------------
-% Ensure '2048' is present in the sample-rate dropdown (needed for
-% the OT Bioelettronica EMG-USB2+ device). We append it if missing
-% instead of editing the .fig file.
+% Ensure '2048' is present in the sample-rate dropdown
 % ---------------------------------------------------------------
 existing = cellstr(get(hObject, 'String'));
 if ~any(strcmp(existing, '2048'))
@@ -396,6 +423,11 @@ end
 existing = cellstr(get(hObject, 'String'));
 if ~any(strcmp(existing, '2000'))
     set(hObject, 'String', [existing(:); {'2000'}]);
+end
+
+existing = cellstr(get(hObject, 'String'));
+if ~any(strcmp(existing, '1000'))
+    set(hObject, 'String', [existing(:); {'1000'}]);
 end
 
 %%The function below detects the available COM porst, I just leave it there
@@ -647,6 +679,20 @@ if strcmp(deviceName, 'SQ+')
     set(handles.ComPortName, 'Enable', 'on');
 end
 
+% ---- LimbMate: open the device-selection dialog ----
+% ---- LimbMate: open the device-selection dialog ----
+if strcmp(deviceName, 'LimbMate')
+    result = LimbMateDialog();
+    if result.connected
+        handles.objLM  = result.objLM;
+        handles.lmName = result.lmName;
+        handles.lmPort = result.port;
+        fprintf('Connected to %s on %s\n', result.lmName, result.port);
+    else
+        fprintf('LimbMate dialog cancelled\n');
+    end
+end
+
 guidata(hObject, handles);
 
 
@@ -661,7 +707,7 @@ function pm_name_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
-deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LM 1', 'LM 2', 'LM 3', 'LM 14' , 'OTB400_HD', 'OTB400_bipolar', 'SQ+'};
+deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LimbMate', 'OTB400_HD', 'OTB400_bipolar', 'SQ+'};
 
 set(hObject,'String',deviceNames);
 set(hObject,'Value',5);
