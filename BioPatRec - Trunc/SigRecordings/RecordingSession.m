@@ -169,11 +169,11 @@ handles.sT    = sT;
 % Setting for data peeking
 % Time window size
 % Window of 100 samples works usually well
-if contains(deviceName, 'OTB400')
+if isOTB400(deviceName)
     tWs = 256; % Time window samples
     tW = tWs/sF;
 
-elseif strcmp(deviceName, 'SQ+')
+elseif isSQplus(deviceName)
     tWs = 200; % 200 ms at 1000 Hz
     tW = tWs/sF;
 
@@ -193,7 +193,7 @@ end
 handles.tWs = tWs;
 timeStamps = (0:tWs-1)/sF; % Create vector of time
 
-if contains(deviceName, 'OTB400')
+if isOTB400(deviceName)
 
     nWindows = sT * sF / tWs;
 
@@ -204,28 +204,11 @@ if contains(deviceName, 'OTB400')
 end
 
 %% Start the connection with Limb-MATE
-if (strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2')  || strcmp(deviceName, 'LM 3') || strcmp(deviceName, 'LM 14'))
-    % Create object for device and connection
-    objLM = LimbMATE_BioPatRec();
-    objLM.recoveryDirectory = fullfile(pwd,'LimbMATE_Recovery');
+if isLimbMATE(deviceName)
+    objLM = GetRecordingLimbMATE(afeSettings, ComPortName);
     lmCleanup = onCleanup(@() objLM.closeRecording());
 
-    % Disable the driver's built-in plotting path.
-    % BioPatRec draws its own plots; the driver must run "headless".
-    objLM.graphical_information.enable_graph = 0;
-    objLM.graphical_information_session.enable_graph = 0;
-
-    % Connect to Bluetooth USB stick
-    objLM.connectBTdongle(ComPortName);
-
-    % Find Bluetooth Devices and Connect to BT device with name "LMATE"
-    BTspeed = "2";
-    objLM.connectBTdevice(deviceName{1,1}, BTspeed);
-
     % Read the acquisition parameters currently stored on the board.
-    % The LimbMATE GUI calls this right after connecting; BioPatRec must
-    % do the same, otherwise properties like packages_per_TW_increment
-    % remain at defaults and the sample reader loops forever.
     objLM.getAcquisitionParams();
 
     % --- diagnostic ---
@@ -235,74 +218,53 @@ if (strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2')  || strcmp(deviceNa
             objLM.channels_encoded, objLM.enable_testmode, objLM.enabled_filters);
 
     % --- BioPatRec EMG-only setup ---
-    % Force test mode OFF so BioPatRec does not record the onboard
-    % square wave. Must be set before startAcquisitionEMG, which sends
-    % this value to the board.
     objLM.enable_testmode = 0;
-
-    % Configure the AFE: sample rate from BioPatRec settings, gain 4,
-    % differential (gel) electrodes.
     objLM.setSampleFreqGain(sF, 4);
     objLM.setElectrodesConfig("Differential");
 
-    % All 8 channels enabled. Encoded as bitmask byte 0xFF.
     active_channels_encoded = uint8(255);
-
-    % One BioPatRec time window, no overlap.
     samples_tw_encoded         = uint8(tWs);
     samples_tw_overlap_encoded = uint8(0);
 
     % Streaming starts in SetDeviceStartAcquisition for each movement.
 
-    % Manually populate the TW bookkeeping that getEMG_data_samples_float_plot
-    % would normally set. BioPatRec bypasses that function and calls
-    % startAcquisitionEMG directly, so these must be provided here.
-    % Driver granularity is 5 samples per BT packet.
     objLM.packages_per_TW           = tWs / 5;
     objLM.packages_per_TW_increment = tWs / 5;
 
     fprintf('DEBUG packages_per_TW = %d, packages_per_TW_increment = %d\n', ...
             objLM.packages_per_TW, objLM.packages_per_TW_increment);
 end
-
 %% Start connection with OTB400
-
-if contains(deviceName, 'OTB400')
-
-    otDuration = max(120, sTall + 20);
-
-    if contains(deviceName, 'HD')
-        % Read electrode configuration from GUI
-        if ~isfield(afeSettings, 'OTB400Electrodes')
-            error('OTB400 HD: electrode configuration missing.');
-        end
-
-        electrodeConfig = afeSettings.OTB400Electrodes;
-
-        objOT = OT_Acquire('hd', nCh, otDuration, electrodeConfig);
-
-        fprintf('OTB400 HD: %d channels configured\n', nCh);
-        disp(objOT.config);
-
+if isOTB400(deviceName)
+    % Reuse the connection passed from the AFE window
+    if isfield(afeSettings, 'objOT') && ~isempty(afeSettings.objOT)
+        fprintf('Reusing existing OTB400 connection\n');
+        objOT = afeSettings.objOT;
     else
-        % Bipolar acquisition
-        objOT = OT_Acquire('bipolar', nCh, otDuration);
+        fprintf('Creating new OTB400 connection\n');
+        otDuration = max(120, sTall + 20);
+        if contains(deviceName, 'HD')
+            electrodeConfig = afeSettings.OTB400Electrodes;
+            objOT = OT_Acquire('hd', nCh, otDuration, electrodeConfig);
+        else
+            objOT = OT_Acquire('bipolar', nCh, otDuration);
+        end
     end
     handles.objOT = objOT;
 end
 
 %% Start connection with Sessantaquattro+ (TCP)
-if strcmp(deviceName, 'SQ+')
-    sqDuration = max(120, sTall + 20);
-    objSQ = Sessantaquattro_Acquire(nCh, sqDuration, 45454);
+if isSQplus(deviceName)
+    % Reuse the connection passed from the AFE window
+    if isfield(afeSettings, 'objSQ') && ~isempty(afeSettings.objSQ)
+        fprintf('Reusing existing SQ+ connection\n');
+        objSQ = afeSettings.objSQ;
+    else
+        fprintf('Creating new SQ+ connection\n');
+        sqDuration = max(120, sTall + 20);
+        objSQ = Sessantaquattro_Acquire(nCh, sqDuration, 45454);
+    end
     handles.objSQ = objSQ;
-end
-
-% Safely assign handles.objLM even when the LM branch did not run
-if exist('objLM', 'var')
-    handles.objLM = objLM;
-else
-    handles.objLM = [];
 end
 
 %% Initialize GUI..
@@ -635,7 +597,7 @@ while ex <= nM
                     acceleGlove.update();
                 end
 
-                if contains(deviceName, 'OTB400') || strcmp(deviceName, 'SQ+')
+                if isOTB400(deviceName) || isSQplus(deviceName)
                     cData = obj.getEMG_data_TW_float(tWs);
                     error = 0;
                 else
@@ -805,7 +767,7 @@ end
 %% Session finish..
 
 % Save data into cdata output matrix
-if strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName, 'LM 3') || strcmp(deviceName, 'LM 14')
+if isLimbMATE(deviceName)
     try
         objLM.stopAcquisitionEMG();
     catch
@@ -816,7 +778,7 @@ if strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName
 end
 
 % Cleanup for OTB
-if contains(deviceName, 'OTB400')
+if isOTB400(deviceName)
     if isfield(handles,'objOT') && ~isempty(handles.objOT)
         try
             handles.objOT.disconnectBTdevice();
@@ -828,7 +790,7 @@ if contains(deviceName, 'OTB400')
 end
 
 % Cleanup for Sessantaquattro+
-if strcmp(deviceName, 'SQ+')
+if isSQplus(deviceName)
     if isfield(handles,'objSQ') && ~isempty(handles.objSQ)
         try
             handles.objSQ.disconnectBTdevice();

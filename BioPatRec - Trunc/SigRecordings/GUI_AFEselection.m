@@ -107,6 +107,10 @@ handles.varargin = varargin;
 % Choose default command line output for GUI_AFEselection
 handles.output = hObject;
 
+% Initialize the LM connection field
+handles.objLM  = [];
+handles.lmName = '';
+
 % Update handles structure
 guidata(hObject, handles);
 
@@ -140,31 +144,45 @@ offsetDelete = get(handles.cb_offset,'Value');
 % AFE_settings.active
 
 %if the devices are powered down then if not deleted, they will trouble
+%if the devices are powered down then if not deleted, they will trouble
 if not(isempty(instrfind('Status','open')))
     fclose(instrfind('Status','open'))
     delete(instrfind)
 end
 
-% % Which device is active
-% AFE_settings.ADS.active=get(handles.cb_active0,'Value');
-% % AFE_settings.ADS.active
-% AFE_settings.RHA.active=get(handles.cb_active1,'Value');
-% % AFE_settings.RHA.active
-% AFE_settings.NI.active=get(handles.cb_active2,'Value'); 
-% % AFE_settings.NI.active
-
-
 % Get devices name
-
-% AFE_settings.ADS.name=get(handles.et_name0,'String');
-% AFE_settings.RHA.name=get(handles.et_name1,'String');
-
 dev = get(handles.pm_name,'String');
 selDev = get(handles.pm_name,'Value');
 AFE_settings.name = dev(selDev);
 deviceName = AFE_settings.name;
 
+% ---- LimbMate: ensure a connection exists, auto-open dialog if not ----
+if isLimbMATE(deviceName)
+    if ~isfield(handles, 'objLM') || isempty(handles.objLM)
+        result = LimbMateDialog();
+        if ~result.connected
+            return;
+        end
+        handles.objLM  = result.objLM;
+        handles.lmName = result.lmName;
+        handles.lmPort = result.port;
+        guidata(hObject, handles);
+    end
+    deviceName = {handles.lmName};
+    AFE_settings.name = deviceName;
 
+    % Pass the LM connection to the session file
+    AFE_settings.objLM = handles.objLM;
+end
+
+% ---- Pass OTB object to the session if it exists ----
+if isfield(handles, 'objOT') && ~isempty(handles.objOT)
+    AFE_settings.objOT = handles.objOT;
+end
+% ---- Pass SQ+ object to the session if it exists ----
+if isfield(handles, 'objSQ') && ~isempty(handles.objSQ)
+    AFE_settings.objSQ = handles.objSQ;
+end
 %% Sampling frequency 
 contents = cellstr(get(handles.pm_sampleRate, 'String'));
 sF = str2double(contents{get(handles.pm_sampleRate,'Value')});
@@ -208,6 +226,20 @@ if strcmp(AFE_settings.ComPortType,'COM')
         AFE_settings.ComPortName=strcat(ComPortType,ComPortName);
     else
         AFE_settings.ComPortName=ComPortName;
+    end
+end
+
+% ---- Override port if we connected via the LimbMATE dialog ----
+if isfield(handles, 'lmPort') && ~isempty(handles.lmPort)
+    AFE_settings.ComPortType = 'COM';
+    AFE_settings.ComPortName = handles.lmPort;
+end
+
+% ---- If we connected via the LimbMATE dialog, use the real port ----
+if strcmp(deviceName{1}, 'LM') || (isfield(handles,'lmPort') && ~isempty(handles.lmPort))
+    if isfield(handles,'lmPort') && ~isempty(handles.lmPort)
+        AFE_settings.ComPortType = 'COM';
+        AFE_settings.ComPortName = handles.lmPort;
     end
 end
 
@@ -385,9 +417,7 @@ if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgr
 end
 
 % ---------------------------------------------------------------
-% Ensure '2048' is present in the sample-rate dropdown (needed for
-% the OT Bioelettronica EMG-USB2+ device). We append it if missing
-% instead of editing the .fig file.
+% Ensure '2048' is present in the sample-rate dropdown
 % ---------------------------------------------------------------
 existing = cellstr(get(hObject, 'String'));
 if ~any(strcmp(existing, '2048'))
@@ -398,6 +428,11 @@ end
 existing = cellstr(get(hObject, 'String'));
 if ~any(strcmp(existing, '2000'))
     set(hObject, 'String', [existing(:); {'2000'}]);
+end
+
+existing = cellstr(get(hObject, 'String'));
+if ~any(strcmp(existing, '1000'))
+    set(hObject, 'String', [existing(:); {'1000'}]);
 end
 
 %%The function below detects the available COM porst, I just leave it there
@@ -552,8 +587,7 @@ elseif strcmp(deviceName, 'ALC-24chs')
 end
 
 % ---- OTB (OT Bioelettronica EMG-USB2+) settings ----
-
-if contains(deviceName, 'OTB400')
+if isOTB400(deviceName)
     if strcmp(deviceName, 'OTB400_HD')
 
         % Step 1: Select number of channels
@@ -623,6 +657,21 @@ if contains(deviceName, 'OTB400')
     set(handles.ComPortName, 'String', '3');
     set(handles.ComPortName, 'Enable', 'on');
 
+    % ---- Create the OTB object now so we can pass it to the session ----
+    % Use a generous 120-second buffer to ensure we don't run out of space
+    otDuration = 120;
+    try
+        if contains(deviceName, 'HD')
+            electrodeConfig = handles.OTB400Electrodes;
+            objOT = OT_Acquire('hd', handles.nCh, otDuration, electrodeConfig);
+        else
+            objOT = OT_Acquire('bipolar', handles.nCh, otDuration);
+        end
+        handles.objOT = objOT;
+        fprintf('OTB400 object created successfully\n');
+    catch ME
+        errordlg(sprintf('Failed to initialize OTB400: %s', ME.message), 'OTB400 Error');
+    end
 end
 
 % ---- Sessantaquattro+ (TCP) settings ----
@@ -647,6 +696,29 @@ if strcmp(deviceName, 'SQ+')
     end
     set(handles.ComPortName, 'String', '3');
     set(handles.ComPortName, 'Enable', 'on');
+        % ---- Create the SQ+ object now so we can pass it to the session ----
+    sqDuration = 120; % Buffer size
+    try
+        objSQ = Sessantaquattro_Acquire(handles.nCh, sqDuration, 45454);
+        handles.objSQ = objSQ;
+        fprintf('SQ+ object created successfully\n');
+    catch ME
+        errordlg(sprintf('Failed to initialize SQ+: %s', ME.message), 'SQ+ Error');
+    end
+end
+
+% ---- LimbMate: open the device-selection dialog ----
+% ---- LimbMate: open the device-selection dialog ----
+if strcmp(deviceName, 'LimbMate')
+    result = LimbMateDialog();
+    if result.connected
+        handles.objLM  = result.objLM;
+        handles.lmName = result.lmName;
+        handles.lmPort = result.port;
+        fprintf('Connected to %s on %s\n', result.lmName, result.port);
+    else
+        fprintf('LimbMate dialog cancelled\n');
+    end
 end
 
 guidata(hObject, handles);
@@ -663,7 +735,7 @@ function pm_name_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
-deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LM 1', 'LM 2', 'LM 3', 'LM 14' , 'OTB400_HD', 'OTB400_bipolar', 'SQ+'};
+deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LimbMate', 'OTB400_HD', 'OTB400_bipolar', 'SQ+'};
 
 set(hObject,'String',deviceNames);
 set(hObject,'Value',5);

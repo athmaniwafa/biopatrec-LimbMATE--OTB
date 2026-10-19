@@ -1,14 +1,14 @@
 % ---------------------------- Copyright Notice ---------------------------
-% This file is part of BioPatRec © which is open and free software under 
+% This file is part of BioPatRec Â© which is open and free software under
 % the GNU Lesser General Public License (LGPL). See the file "LICENSE" for 
 % the full license governing this code and copyrights.
 %
 % BioPatRec was initially developed by Max J. Ortiz C. at Integrum AB and 
-% Chalmers University of Technology. All authors’ contributions must be kept
+% Chalmers University of Technology. All authorsâ€™ contributions must be kept
 % acknowledged below in the section "Updates % Contributors". 
 %
 % Would you like to contribute to science and sum efforts to improve 
-% amputees’ quality of life? Join this project! or, send your comments to:
+% amputeesâ€™ quality of life? Join this project! or, send your comments to:
 % maxo@chalmers.se.
 %
 % The entire copyright notice must be kept in this or any source file 
@@ -40,7 +40,7 @@ function obj = ConnectDevice(handles)
     deviceName  = handles.deviceName;
 
     % OTB400 uses OTComm .NET, not MATLAB serial communication
-    if contains(deviceName, 'OTB400')
+    if isOTB400(deviceName)
     
         if ~isfield(handles, 'objOT') || isempty(handles.objOT)
             error('OTB400: device object not initialized.');
@@ -52,7 +52,7 @@ function obj = ConnectDevice(handles)
     end
 
     % Sessantaquattro+ uses a TCP socket, not MATLAB serial communication
-    if strcmp(deviceName, 'SQ+')
+    if isSQplus(deviceName)
         if ~isfield(handles, 'objSQ') || isempty(handles.objSQ)
             error('SQ+: device object not initialized.');
         end
@@ -128,7 +128,7 @@ function obj = ConnectDevice(handles)
         end
 
        %%%%% Limb Mate 1 or 2 %%%%% - Transmit the entire Class Structure %%%%%
-        if (strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName, 'LM 3') || strcmp(deviceName, 'LM 14') )
+        if isLimbMATE(deviceName)
             % Create object for device and connection
             obj = handles.objLM;
 
@@ -137,7 +137,7 @@ function obj = ConnectDevice(handles)
     end     
 
     % Open the connection if not Limb Mate, OTB400, or SQ+
-    if (~(strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName, 'LM 3') || strcmp(deviceName, 'LM 14') || contains(deviceName, 'OTB400') || strcmp(deviceName, 'SQ+')) )
+    if (~(isLimbMATE(deviceName) || isOTB400(deviceName) || isSQplus(deviceName)) )
         % Open the connection
         fopen(obj);
     

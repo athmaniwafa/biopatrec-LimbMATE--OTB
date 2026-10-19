@@ -48,8 +48,6 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     handles.lmRecordedSamples = [];
     afeSettings  = varargin{2};
 
-    handles.OTBRecordingMap = OTB400_OpenRecordingMap(afeSettings, handles);
-
     % Get required informations from afeSettings structure
     nCh          = afeSettings.channels;
     sF           = afeSettings.sampleRate;
@@ -86,15 +84,14 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     handles.plotType    = afeSettings.plotType;
     
     % Setting for data peeking
-        % Setting for data peeking
     sT            = handles.sT;
     handles.sT    = sT;
     handles.sTall = sT;
 
-    if contains(deviceName, 'OTB400')
+    if isOTB400(deviceName)
         tWs = 256;
         tW = tWs / sF;
-    elseif strcmp(deviceName, 'SQ+')
+    elseif isSQplus(deviceName)
         tWs = 200;   % 200 ms at 1000 Hz
         tW = tWs / sF;
     else
@@ -104,11 +101,6 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
 
     handles.tWs = tWs; % Time window samples
     timeStamps = (0:tWs-1)/sF;          % Create vector of time
-    
-    handles.tWs = tWs; % Time window samples
-    timeStamps = (0:tWs-1)/sF;          % Create vector of time                                  
-    
-    
     
     if mod(sT,tW) > 0
         errordlg('Please, the time window size must be a multiple of the recording time. Select a proper time window size!')
@@ -232,54 +224,35 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         end
 
         %% Start the connection with Limb-MATE
-        if any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'}))
-            % Create object for device and connection
-            objLM = LimbMATE_BioPatRec();
-            objLM.recoveryDirectory = fullfile(pwd,'LimbMATE_Recovery');
+        if isLimbMATE(deviceName)
+            objLM = GetRecordingLimbMATE(afeSettings, ComPortName);
             lmCleanup = onCleanup(@() objLM.closeRecording());
-        
-            % Connect to Bluetooth USB stick
-            objLM.connectBTdongle(ComPortName);
-        
-            % Find Bluetooth Devices and Connect to BT device with name "LMATE"
-            BTspeed = "2";
-            objLM.connectBTdevice(deviceName{1,1}, BTspeed);
 
             % Store on handles for later cleanup
             handles.objLM = objLM;
         end
 
         %% Start the connection with OTB (OT Bioelettronica EMG-USB2+)
-        if contains(deviceName, 'OTB400')
-            % Preallocate enough buffer to cover the whole session + margin
-            otDuration = max(60, handles.sT + 10);
-
-            % Create and open the OT device (bipolar mode, matching the
-            % currently connected adapter). Change 'bipolar' to 'hd1' or
-            % 'hd2' if you plug in the corresponding adapter later.
-            if contains(deviceName, 'HD')
-                % Read electrode configuration from GUI
-                if ~isfield(afeSettings, 'OTB400Electrodes')
-                    error('OTB400 HD: electrode configuration missing.');
-                end
-        
-                electrodeConfig = afeSettings.OTB400Electrodes;
-        
-                objOT = OT_Acquire('hd', nCh, otDuration, electrodeConfig);
-        
-                fprintf('OTB400 HD: %d channels configured\n', nCh);
-                disp(objOT.config);
-        
+        if isOTB400(deviceName)
+            % Reuse the connection passed from the AFE window
+            if isfield(afeSettings, 'objOT') && ~isempty(afeSettings.objOT)
+                fprintf('Reusing existing OTB400 connection\n');
+                objOT = afeSettings.objOT;
             else
-                % Bipolar acquisition
-                objOT = OT_Acquire('bipolar', nCh, otDuration);
+                fprintf('Creating new OTB400 connection\n');
+                otDuration = max(60, handles.sT + 10);
+                if contains(deviceName, 'HD')
+                    electrodeConfig = afeSettings.OTB400Electrodes;
+                    objOT = OT_Acquire('hd', nCh, otDuration, electrodeConfig);
+                else
+                    objOT = OT_Acquire('bipolar', nCh, otDuration);
+                end
             end
-
             handles.objOT = objOT;
         end
 
         %% Start the connection with Sessantaquattro+ (TCP)
-        if strcmp(deviceName, 'SQ+')
+        if isSQplus(deviceName)
             sqDuration = max(60, handles.sT + 10);
             objSQ = Sessantaquattro_Acquire(handles.nCh, sqDuration, 45454);
             handles.objSQ = objSQ;
@@ -287,7 +260,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
 
         % Connect the chosen device, it returns the connection object
         obj = ConnectDevice(handles);
-        if ~(any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'})) || contains(deviceName, 'OTB400') || strcmp(deviceName, 'SQ+'))
+        if ~(isLimbMATE(deviceName) || isOTB400(deviceName) || isSQplus(deviceName))
             if strcmp(get(obj,'Status'),'closed')   % Make sure port opened correctly
                 return;
             end
@@ -295,7 +268,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         
         % Set the selected device and Start the acquisition
         SetDeviceStartAcquisition(handles, obj);
-        if ~(any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'})) || contains(deviceName, 'OTB400') || strcmp(deviceName, 'SQ+'))
+        if ~(isLimbMATE(deviceName) || isOTB400(deviceName) || isSQplus(deviceName))
             if strcmp(get(obj,'Status'),'closed')   % StartAcquisition closes the port on failure
                 return;
             end
@@ -314,7 +287,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
                 acceleGlove.update();
             end
             
-            if contains(deviceName, 'OTB400') || strcmp(deviceName, 'SQ+')
+            if isOTB400(deviceName) || isSQplus(deviceName)
             
                 % Read data directly from the wrapper class
                 cdata = obj.getEMG_data_TW_float(tWs);
@@ -391,7 +364,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     end
 
     % Save data into cdata output matrix
-    if any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'}))
+    if isLimbMATE(deviceName)
         if isfield(handles,'objLM') && ~isempty(handles.objLM)
             try
                 handles.objLM.closeRecording();
@@ -403,7 +376,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     end
 
     % Cleanup for OTB
-    if contains(deviceName, 'OTB400')
+    if isOTB400(deviceName)
         if isfield(handles,'objOT') && ~isempty(handles.objOT)
             try
                 handles.objOT.disconnectBTdevice();
@@ -415,7 +388,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     end
 
     % Cleanup for Sessantaquattro+
-    if strcmp(deviceName, 'SQ+')
+    if isSQplus(deviceName)
         if isfield(handles,'objSQ') && ~isempty(handles.objSQ)
             try
                 handles.objSQ.disconnectBTdevice();

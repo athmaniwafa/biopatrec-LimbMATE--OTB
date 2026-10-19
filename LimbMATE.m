@@ -170,7 +170,7 @@ classdef LimbMATE < handle
 
     end
     
-    properties(Constant, Access = private)
+    properties(Constant, Access = protected)
         
         %BT communication protocol
         MAX_DATA_LENGTH = 255; % 243
@@ -982,7 +982,12 @@ classdef LimbMATE < handle
             CMD_DATA_CNF = dec2hex(receivedDataDec1,2); %Response CMD_DATA_CNF
             self.verifyInputData(inputLength1,receivedDataDec1,self.CMD_BYTE_DATA_CNF);
             %Repeat CMD_DATA_REQ in case operation failed
+            commandAttempts = 1;
             while (CMD_DATA_CNF(5,:) ~= "00") %In case data not successfully sent, try again
+                if commandAttempts >= 3
+                    error('LM:CommandRejected','Bluetooth command rejected after three attempts.');
+                end
+                commandAttempts = commandAttempts + 1;
                 pause(1);
                 flush(self.serialObj);
                 write(self.serialObj,command(1:(packageLength+1)),"uint8");
