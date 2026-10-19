@@ -144,33 +144,20 @@ offsetDelete = get(handles.cb_offset,'Value');
 % AFE_settings.active
 
 %if the devices are powered down then if not deleted, they will trouble
+%if the devices are powered down then if not deleted, they will trouble
 if not(isempty(instrfind('Status','open')))
     fclose(instrfind('Status','open'))
     delete(instrfind)
 end
 
-% % Which device is active
-% AFE_settings.ADS.active=get(handles.cb_active0,'Value');
-% % AFE_settings.ADS.active
-% AFE_settings.RHA.active=get(handles.cb_active1,'Value');
-% % AFE_settings.RHA.active
-% AFE_settings.NI.active=get(handles.cb_active2,'Value'); 
-% % AFE_settings.NI.active
-
-
 % Get devices name
-
-% AFE_settings.ADS.name=get(handles.et_name0,'String');
-% AFE_settings.RHA.name=get(handles.et_name1,'String');
-
 dev = get(handles.pm_name,'String');
 selDev = get(handles.pm_name,'Value');
 AFE_settings.name = dev(selDev);
 deviceName = AFE_settings.name;
 
 % ---- LimbMate: ensure a connection exists, auto-open dialog if not ----
-% ---- LimbMate: ensure a connection exists, auto-open dialog if not ----
-if strcmp(deviceName, 'LimbMate')
+if isLimbMATE(deviceName)
     if ~isfield(handles, 'objLM') || isempty(handles.objLM)
         result = LimbMateDialog();
         if ~result.connected
@@ -183,9 +170,15 @@ if strcmp(deviceName, 'LimbMate')
     end
     deviceName = {handles.lmName};
     AFE_settings.name = deviceName;
+    
+    % Pass the LM connection to the session file
+    AFE_settings.objLM = handles.objLM;
 end
 
-
+% ---- Pass OTB object to the session if it exists ----
+if isfield(handles, 'objOT') && ~isempty(handles.objOT)
+    AFE_settings.objOT = handles.objOT;
+end
 %% Sampling frequency 
 contents = cellstr(get(handles.pm_sampleRate, 'String'));
 sF = str2double(contents{get(handles.pm_sampleRate,'Value')});
@@ -230,6 +223,12 @@ if strcmp(AFE_settings.ComPortType,'COM')
     else
         AFE_settings.ComPortName=ComPortName;
     end
+end
+
+% ---- Override port if we connected via the LimbMATE dialog ----
+if isfield(handles, 'lmPort') && ~isempty(handles.lmPort)
+    AFE_settings.ComPortType = 'COM';
+    AFE_settings.ComPortName = handles.lmPort;
 end
 
 % ---- If we connected via the LimbMATE dialog, use the real port ----
@@ -582,8 +581,7 @@ elseif strcmp(deviceName, 'ALC-24chs')
 end
 
 % ---- OTB (OT Bioelettronica EMG-USB2+) settings ----
-
-if contains(deviceName, 'OTB400')
+if isOTB400(deviceName)
     if strcmp(deviceName, 'OTB400_HD')
 
         % Step 1: Select number of channels
@@ -653,6 +651,21 @@ if contains(deviceName, 'OTB400')
     set(handles.ComPortName, 'String', '3');
     set(handles.ComPortName, 'Enable', 'on');
 
+    % ---- Create the OTB object now so we can pass it to the session ----
+    % Use a generous 120-second buffer to ensure we don't run out of space
+    otDuration = 120;
+    try
+        if contains(deviceName, 'HD')
+            electrodeConfig = handles.OTB400Electrodes;
+            objOT = OT_Acquire('hd', handles.nCh, otDuration, electrodeConfig);
+        else
+            objOT = OT_Acquire('bipolar', handles.nCh, otDuration);
+        end
+        handles.objOT = objOT;
+        fprintf('OTB400 object created successfully\n');
+    catch ME
+        errordlg(sprintf('Failed to initialize OTB400: %s', ME.message), 'OTB400 Error');
+    end
 end
 
 % ---- Sessantaquattro+ (TCP) settings ----
