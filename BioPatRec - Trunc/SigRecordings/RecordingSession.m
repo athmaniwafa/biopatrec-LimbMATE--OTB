@@ -268,16 +268,16 @@ end
 
 %% Start connection with Sessantaquattro+ (TCP)
 if isSQplus(deviceName)
-    sqDuration = max(120, sTall + 20);
-    objSQ = Sessantaquattro_Acquire(nCh, sqDuration, 45454);
+    % Reuse the connection passed from the AFE window
+    if isfield(afeSettings, 'objSQ') && ~isempty(afeSettings.objSQ)
+        fprintf('Reusing existing SQ+ connection\n');
+        objSQ = afeSettings.objSQ;
+    else
+        fprintf('Creating new SQ+ connection\n');
+        sqDuration = max(120, sTall + 20);
+        objSQ = Sessantaquattro_Acquire(nCh, sqDuration, 45454);
+    end
     handles.objSQ = objSQ;
-end
-
-% Safely assign handles.objLM even when the LM branch did not run
-if exist('objLM', 'var')
-    handles.objLM = objLM;
-else
-    handles.objLM = [];
 end
 
 %% Initialize GUI..

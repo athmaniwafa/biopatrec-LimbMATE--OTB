@@ -179,6 +179,10 @@ end
 if isfield(handles, 'objOT') && ~isempty(handles.objOT)
     AFE_settings.objOT = handles.objOT;
 end
+% ---- Pass SQ+ object to the session if it exists ----
+if isfield(handles, 'objSQ') && ~isempty(handles.objSQ)
+    AFE_settings.objSQ = handles.objSQ;
+end
 %% Sampling frequency 
 contents = cellstr(get(handles.pm_sampleRate, 'String'));
 sF = str2double(contents{get(handles.pm_sampleRate,'Value')});
@@ -690,6 +694,15 @@ if strcmp(deviceName, 'SQ+')
     end
     set(handles.ComPortName, 'String', '3');
     set(handles.ComPortName, 'Enable', 'on');
+        % ---- Create the SQ+ object now so we can pass it to the session ----
+    sqDuration = 120; % Buffer size
+    try
+        objSQ = Sessantaquattro_Acquire(handles.nCh, sqDuration, 45454);
+        handles.objSQ = objSQ;
+        fprintf('SQ+ object created successfully\n');
+    catch ME
+        errordlg(sprintf('Failed to initialize SQ+: %s', ME.message), 'SQ+ Error');
+    end
 end
 
 % ---- LimbMate: open the device-selection dialog ----
