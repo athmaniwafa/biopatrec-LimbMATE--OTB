@@ -2452,13 +2452,7 @@ if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgr
     set(hObject,'BackgroundColor','white');
 end
 % list all serial ports available
-serialportlist = instrhwinfo('serial');
-if ~isempty(serialportlist.AvailableSerialPorts)
-    serialportlist = serialportlist.SerialPorts;
-    set(hObject,'String',serialportlist);
-else
-    set(hObject,'String','None Available');
-end
+populateSerialPorts(hObject);
 
 % --- Executes on button press in rb_serial.
 function rb_serial_Callback(hObject, eventdata, handles)
@@ -2470,13 +2464,7 @@ function rb_serial_Callback(hObject, eventdata, handles)
 set(handles.rb_wifi,'Value',0);
 set(handles.pm_serialportipaddress,'Style','popupmenu');
 % list all serial ports available
-serialportlist = instrhwinfo('serial');
-if ~isempty(serialportlist.AvailableSerialPorts)
-    serialportlist = serialportlist.SerialPorts;
-    set(handles.pm_serialportipaddress,'String',serialportlist);
-else
-    set(handles.pm_serialportipaddress,'String','None Available');
-end
+populateSerialPorts(handles.pm_serialportipaddress);
 set(handles.et_baudrateport,'String','BaudRate');
 
 % --- Executes on button press in rb_wifi.
@@ -2708,3 +2696,21 @@ function cb_MIA_Callback(hObject, eventdata, handles)
 % handles    structure with handles and user data (see GUIDATA)
 
 % Hint: get(hObject,'Value') returns toggle state of cb_MIA
+
+function populateSerialPorts(control)
+% Serial prosthesis support is optional for OTB and virtual-hand testing.
+ports = {};
+try
+    ports = cellstr(serialportlist('available'));
+catch
+    try
+        info = instrhwinfo('serial');
+        ports = info.AvailableSerialPorts;
+    catch
+        % Missing toolbox or serial support must not prevent opening the GUI.
+    end
+end
+if isempty(ports)
+    ports = {'None Available'};
+end
+set(control,'Value',1,'String',ports);

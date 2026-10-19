@@ -615,6 +615,14 @@ function pm_twSegMethod_Callback(hObject, eventdata, handles)
 %        contents{get(hObject,'Value')} returns selected item from pm_twSegMethod
 
     sigTreated = get(handles.t_sigTreated,'UserData');
+    if ~isstruct(sigTreated) || ~isscalar(sigTreated) || ...
+            ~all(isfield(sigTreated, {'cT','cTp','nR'}))
+        set(handles.et_wOverlap,'Enable','off');
+        if get(hObject,'Value') == 2
+            set(handles.et_wOverlap,'Enable','on');
+        end
+        return; % Window counts are computed after preprocessing.
+    end
     sigTreated.eCt      = sigTreated.cT*sigTreated.cTp;      % Effective contraction time
 
     if get(hObject,'Value') == 1

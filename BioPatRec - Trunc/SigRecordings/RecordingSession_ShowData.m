@@ -71,7 +71,8 @@ p_t0 = handles.p_t0;
 p_f0 = handles.p_f0;
 
 % Get data from tempData and add to allData global vector
-if(isempty(allData))                                                   % Fist DAQ callback
+lmPreallocated = isfield(handles,'lmRecordedSamples') && ~isempty(handles.lmRecordedSamples);
+if isempty(allData) || (lmPreallocated && handles.lmRecordedSamples == 0)                                                   % Fist DAQ callback
     % First data frame
     timeStamps = [];
     
@@ -88,7 +89,8 @@ if(isempty(allData))                                                   % Fist DA
 end
 tempData = event.Data;
 
-if isfield(handles, 'OTBRecordingMap') && isgraphics(handles.OTBRecordingMap)
+if isfield(handles, 'OTBRecordingMap') && ...
+        isscalar(handles.OTBRecordingMap) && isgraphics(handles.OTBRecordingMap)
 
     mapAx = getappdata(handles.OTBRecordingMap, 'RecordingMapAxes');
 
@@ -97,8 +99,26 @@ if isfield(handles, 'OTBRecordingMap') && isgraphics(handles.OTBRecordingMap)
     end
 end
 
-allData = [allData; tempData];
+if lmPreallocated
+    lastSample = handles.lmRecordedSamples + size(tempData,1);
+    if lastSample > size(allData,1)
+        error('LM:RecordingCapacity','Recording exceeds its preallocated duration.');
+    end
+    allData(handles.lmRecordedSamples+1:lastSample,:) = tempData;
+    handles.lmRecordedSamples = lastSample;
+else
+    allData = [allData; tempData];
+end
 timeStamps = [timeStamps; event.TimeStamps];
+
+% Reading and checkpointing continue at full rate; redraw at most 10 Hz.
+if lmPreallocated
+    if isfield(handles,'lmLastPlotTic') && toc(handles.lmLastPlotTic) < 0.1 && ...
+            handles.lmRecordedSamples < size(allData,1)
+        return;
+    end
+    handles.lmLastPlotTic = tic;
+end
 
 
 %% Status bar update
@@ -237,7 +257,7 @@ if strcmp(plotType,'Bar Chart')
     set(handles.a_t0,'XTickLabel',0:nCh-1);
 end
 
-% Riapplica la selezione dopo ogni aggiornamento RT.
+% Reapply the selection after each RT update.
 mainFig = ancestor(handles.a_t0,'figure');
 
 if strcmp(plotType,'Raw Signal') && ...

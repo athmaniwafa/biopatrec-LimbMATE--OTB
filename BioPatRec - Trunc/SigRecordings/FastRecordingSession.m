@@ -45,6 +45,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     global       samplesCounter;
     allData      = [];
     handles      = varargin{1};
+    handles.lmRecordedSamples = [];
     afeSettings  = varargin{2};
 
     handles.OTBRecordingMap = OTB400_OpenRecordingMap(afeSettings, handles);
@@ -234,6 +235,8 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         if any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'}))
             % Create object for device and connection
             objLM = LimbMATE_BioPatRec();
+            objLM.recoveryDirectory = fullfile(pwd,'LimbMATE_Recovery');
+            lmCleanup = onCleanup(@() objLM.closeRecording());
         
             % Connect to Bluetooth USB stick
             objLM.connectBTdongle(ComPortName);
@@ -298,6 +301,11 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
             end
         end
         
+        handles.lmRecordedSamples = [];
+        if isa(obj,'LimbMATE_BioPatRec')
+            allData = zeros(round(sF*sT),nCh,'single');
+            handles.lmRecordedSamples = 0;
+        end
         samplesCounter = 0;
 
         tic
@@ -323,7 +331,10 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
             
             if acquisitionError == 1
             
-                errordlg('Error occurred during acquisition!', 'Error');
+                if isa(obj,'LimbMATE_BioPatRec'), obj.finishRecording(false); end
+                StopAcquisition(deviceName,obj);
+                cdata = [];
+                errordlg('Acquisition stopped. Partial LM data are in LimbMATE_Recovery.', 'Error');
                 return;
             
             end
@@ -348,6 +359,14 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         end
         toc
 
+        if isa(obj,'LimbMATE_BioPatRec')
+            obj.finishRecording(true);
+            sensorData.recordingIntegrity = obj.getRecordingIntegrity();
+            if sensorData.recordingIntegrity.replacedSamples > 0
+                warndlg(sprintf('LimbMATE: %d samples replaced. Details are saved with the recording.', ...
+                    sensorData.recordingIntegrity.replacedSamples),'Recording quality');
+            end
+        end
         % Stop acquisition
         StopAcquisition(deviceName, obj); 
         if useAcceleGlove
@@ -375,8 +394,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     if any(strcmp(deviceName, {'LM 1','LM 2','LM 3','LM 14'}))
         if isfield(handles,'objLM') && ~isempty(handles.objLM)
             try
-                handles.objLM.disconnectBTdevice();
-                delete(handles.objLM.serialObj);
+                handles.objLM.closeRecording();
             catch ME
                 fprintf('Cleanup warning: %s\n', ME.message);
             end

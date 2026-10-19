@@ -302,6 +302,7 @@ switch mode
         % Tr=handles.varargin{5};
         %Moved from Recoding Session Fig
 
+        if isempty(cdata), return; end
         sT = (cT+rT)*nR;
         cdata = cdata(:,:,size(cdata,3));
         tempdata = cdata;
@@ -315,6 +316,7 @@ switch mode
     case 1
         % Fast recording session
         [cdata, sF, sT, sdata] = FastRecordingSession(hGUI_Rec,AFE_settings);
+        if isempty(cdata), return; end
         tempdata = cdata;                                                      % variable useful for offline data processing
         save('cdata.mat','cdata','tempdata','sdata','sF','sT','nCh','ComPortType','deviceName','plotType','featureType');
     case 2

@@ -100,8 +100,9 @@ nM           = varargin{1};
 nR           = varargin{2};
 cT           = varargin{3};
 rT           = varargin{4};
-% mov          = varargin{5};
+mov          = varargin{5};
 handles      = varargin{6};
+handles.lmRecordedSamples = [];
 afeSettings  = varargin{7};
 trainWithVr  = varargin{8};
 vreMovements = varargin{9};
@@ -205,7 +206,9 @@ end
 %% Start the connection with Limb-MATE
 if (strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2')  || strcmp(deviceName, 'LM 3') || strcmp(deviceName, 'LM 14'))
     % Create object for device and connection
-    objLM = LimbMATE();
+    objLM = LimbMATE_BioPatRec();
+    objLM.recoveryDirectory = fullfile(pwd,'LimbMATE_Recovery');
+    lmCleanup = onCleanup(@() objLM.closeRecording());
 
     % Disable the driver's built-in plotting path.
     % BioPatRec draws its own plots; the driver must run "headless".
@@ -249,9 +252,7 @@ if (strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2')  || strcmp(deviceNa
     samples_tw_encoded         = uint8(tWs);
     samples_tw_overlap_encoded = uint8(0);
 
-    % Start streaming to the PC.
-    objLM.startAcquisitionEMG(1, active_channels_encoded, ...
-                              samples_tw_encoded, samples_tw_overlap_encoded);
+    % Streaming starts in SetDeviceStartAcquisition for each movement.
 
     % Manually populate the TW bookkeeping that getEMG_data_samples_float_plot
     % would normally set. BioPatRec bypasses that function and calls
@@ -407,6 +408,7 @@ drawnow update
 
 % Allocation of resource to improve speed, total data
 recSessionData = zeros(sF*sTall, nCh, nM);
+recordingIntegrity = cell(1,nM);
 if isfield(afeSettings,'useAcceleGlove') && afeSettings.useAcceleGlove == 1
     useAcceleGlove = 1;
     sensorData.accelerometers = zeros(18,sT/tW);
@@ -610,6 +612,11 @@ while ex <= nM
         obj = ConnectDevice(handles);
         
         % Set the selected device and Start the acquisition
+        handles.lmRecordedSamples = [];
+        if isa(obj,'LimbMATE_BioPatRec')
+            allData = zeros(round(sF*sTall),nCh,'single');
+            handles.lmRecordedSamples = 0;
+        end
         SetDeviceStartAcquisition(handles, obj);
         
         for rep = 1 : nR
@@ -635,6 +642,17 @@ while ex <= nM
                     [cData, error] = Acquire_tWs(deviceName, obj, nCh, tWs, compressData);    % acquire a new time window of samples
                 end
 
+                if error
+                    % Failed reads must not enter the recording or plots.
+                    if isa(obj,'LimbMATE_BioPatRec')
+                        obj.finishRecording(false);
+                        fprintf('Partial recording preserved in %s\n',obj.recoveryPath);
+                    end
+                    StopAcquisition(deviceName,obj);
+                    errordlg('Acquisition stopped: invalid or incomplete data. Partial LM data are in LimbMATE_Recovery.','Acquisition error');
+                    cdata = [];
+                    return;
+                end
                 acquireEvent.Data = cData;
             
                 % Wait up to 100ms for data from AcceleGlove, if timeout
@@ -716,6 +734,15 @@ while ex <= nM
             toc
         end
         
+        movementIntegrity = [];
+        if isa(obj,'LimbMATE_BioPatRec')
+            obj.finishRecording(true);
+            movementIntegrity = obj.getRecordingIntegrity();
+            if movementIntegrity.replacedSamples > 0
+                warndlg(sprintf('LimbMATE: %d samples replaced. Repeat this movement if needed. Details are saved with the recording.', ...
+                    movementIntegrity.replacedSamples),'Recording quality');
+            end
+        end
         % Stop acquisition
         StopAcquisition(deviceName, obj);
         if useAcceleGlove
@@ -757,12 +784,14 @@ while ex <= nM
             if strcmp(answer, 'n')
                 % Save and go ahead with the next movement..
                 recSessionData(:,:,ex) = allData(:,:);
+                recordingIntegrity{ex} = movementIntegrity;
                 % Increase loop index
                 ex = ex + 1;
             end
         else
             % Save and go ahead with the next movement..
             recSessionData(:,:,ex) = allData(:,:);
+            recordingIntegrity{ex} = movementIntegrity;
             % Increase loop index
             ex = ex + 1;
         end
@@ -782,8 +811,7 @@ if strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName
     catch
         % If the acquisition already stopped on the board, ignore
     end
-    objLM.disconnectBTdevice();
-    delete(objLM.serialObj);
+    objLM.closeRecording();
     handles.objLM = [];
 end
 
@@ -813,6 +841,9 @@ end
 
 % Save data into cdata output matrix
 cdata = recSessionData(:,:,:);
+if any(~cellfun(@isempty,recordingIntegrity))
+    sensorData.recordingIntegrity = recordingIntegrity;
+end
 
 if saveRec                                                             % Saved in DataAnalysis
     
@@ -825,6 +856,9 @@ if saveRec                                                             % Saved i
     
     % Save Session to file
     recSession.sF       = sF;
+    if any(~cellfun(@isempty,recordingIntegrity))
+        recSession.recordingIntegrity = recordingIntegrity;
+    end
     recSession.sT       = sTall;
     recSession.cT       = cT;
     recSession.rT       = rT;
