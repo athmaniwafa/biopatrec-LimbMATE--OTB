@@ -218,7 +218,7 @@ fprintf('Frame registrati: %d\n',N);
 fprintf('Durata reale: %.3f s\n',N/Fs);
 
 %% ============================================================
-% PLOT FINALE DI TUTTI I SEGNALI
+% FINAL PLOT OF ALL SIGNALS
 %% ============================================================
 
 FinalShift = 4500;
@@ -283,7 +283,7 @@ else
 
 end
 
-%% OUTPUT SPECIFICO
+%% MODE-SPECIFIC OUTPUT
 
 matrix1 = [];
 matrix2 = [];

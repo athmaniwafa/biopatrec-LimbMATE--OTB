@@ -8,7 +8,7 @@ if ~isfield(h,'a_t0') || ~isscalar(h.a_t0) || ...
 end
 mainFig = ancestor(h.a_t0, 'figure');
 
-% Rimuove il pannello della registrazione precedente.
+% Remove the panel from the previous recording.
 OTB400_ChannelMap('remove', mainFig);
 delete(findall(mainFig, 'Tag', 'OTBRecordingPanel'));
 
@@ -16,7 +16,8 @@ if isappdata(mainFig, 'OTBRecordingRefresh')
     rmappdata(mainFig, 'OTBRecordingRefresh');
 end
 
-if ~contains(char(afeSettings.name), 'HD')
+% The electrode grid is available only for the OTB400 HD adapter.
+if ~strcmp(char(afeSettings.name), 'OTB400_HD')
     return
 end
 
@@ -24,7 +25,7 @@ if ~isfield(afeSettings, 'OTB400Electrodes')
     error('Seleziona prima gli elettrodi HD.');
 end
 
-% Pannello sotto il messaggio di stato, nella finestra esistente.
+% Panel below the status message in the existing window.
 panel = uipanel( ...
     'Parent', mainFig, ...
     'Tag', 'OTBRecordingPanel', ...
@@ -53,8 +54,8 @@ setappdata(mapAx, 'OTB400_UniformBackground', true);
 OTB400_ChannelMap('install', mainFig, mapAx, ...
     afeSettings.channels, afeSettings.OTB400Electrodes);
 
-% Usa la matrice numerata nel pannello appena creato.
-% Nasconde i controlli laterali previsti dalla vecchia GUI HD.
+% Use the numbered grid in the newly created panel.
+% Hide the side controls used by the old HD GUI.
 st = getappdata(mainFig, 'OTB400_ChannelMapState');
 set(st.panel, 'Visible', 'off');
 set(st.toggle, 'Visible', 'off');
@@ -64,11 +65,11 @@ setappdata(panel, 'RecordingMapAxes', mapAx);
 OTB400_ChannelMap('preview', mapAx, ...
     zeros(1, afeSettings.channels));
 
-% Conserva il callback che individua l'elettrodo sotto il mouse.
+% Preserve the callback that identifies the electrode under the mouse.
 mapMotion = get(mainFig, 'WindowButtonMotionFcn');
 set(mainFig, 'WindowButtonMotionFcn', @onMotion);
 
-% Permette di ricollegare le linee quando DataShow le ricrea.
+% Allow lines to be reconnected when DataShow recreates them.
 setappdata(mainFig, 'OTBRecordingRefresh', @highlightTrace);
 
     function onFilter(src,~)
@@ -96,7 +97,7 @@ setappdata(mainFig, 'OTBRecordingRefresh', @highlightTrace);
 
         state = getappdata(mainFig, 'OTB400_ChannelMapState');
 
-        % Selezioni fissate con il clic.
+        % Selections pinned by clicking.
         marked = false(1,afeSettings.channels);
         if isfield(state,'marked')
             marked = state.marked;
@@ -104,17 +105,17 @@ setappdata(mainFig, 'OTBRecordingRefresh', @highlightTrace);
 
         onlySelected = logical(get(filterButton,'Value'));
         
-        % Aggiunge l'anteprima del canale sotto il mouse.
+        % Add a preview of the channel under the mouse.
         active = marked;
         if state.hovered >= 1 && state.hovered <= numel(active)
             active(state.hovered) = true;
         end
 
-        % plot crea le linee nell'ordine dei canali;
-        % Children/findobj le restituisce in ordine inverso.
+        % plot creates lines in channel order;
+        % Children/findobj returns them in reverse order.
         traces = flipud(findobj(h.a_t0, 'Type', 'line'));
 
-        % Evita associazioni sbagliate nelle viste con un sottoinsieme.
+        % Avoid incorrect mappings in views displaying a subset of channels.
         if numel(traces) ~= afeSettings.channels
             return
         end
@@ -156,7 +157,7 @@ setappdata(mainFig, 'OTBRecordingRefresh', @highlightTrace);
             end
         end
 
-        % Numerazione fisica: IN1/1...64, IN2/1...64.
+        % Physical numbering: IN1/1...64, IN2/1...64.
         channels = 1:numel(traces);
 
         labels = arrayfun(@(k) sprintf('IN%d/%d', ...

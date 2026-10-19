@@ -1,5 +1,5 @@
 function varargout = OTB400_ChannelMap(action, varargin)
-% OTB400_ChannelMap - Mappe HD interattive per GUI_Recordings_Image (GUIDE).
+% OTB400_ChannelMap - Interactive HD maps for GUI_Recordings_Image (GUIDE).
 %
 % API:
 %   OTB400_ChannelMap('install', figureHandle, axesHandle, nCh, electrodes)
@@ -344,7 +344,7 @@ function cmClicked(fig,ch)
             st.marked = false(1,st.nCh);
         end
 
-        % Ogni clic inverte solo la selezione di questo canale.
+        % Each click toggles only the selection of this channel.
         st.marked(ch) = ~st.marked(ch);
     else
         st.enabled(ch) = ~st.enabled(ch);
@@ -540,7 +540,7 @@ function cmHighlight(fig)
         return
     end
 
-    % I bordi non devono intercettare i clic.
+    % Borders must not intercept clicks.
     set(st.plotHighlight,'PickableParts','none');
 
     if isappdata(fig,'OTBRecordingRefresh')
@@ -549,13 +549,13 @@ function cmHighlight(fig)
             marked = st.marked;
         end
 
-        % Posizioni dei canali fissati.
+        % Positions of pinned channels.
         cells = false(size(st.map));
         valid = isfinite(st.map);
         cells(valid) = marked(st.map(valid));
         [rr,cc] = find(cells);
 
-        % Un unico oggetto disegna tutti i quadrati fissi.
+        % A single object draws all pinned squares.
         outline = findobj(st.axes, ...
             'Type','line','Tag','OTBPinnedOutlines');
 
@@ -575,7 +575,7 @@ function cmHighlight(fig)
 
         set(outline,'XData',xx(:),'YData',yy(:));
 
-        % Il quadrato mobile segue soltanto il mouse.
+        % The moving square follows only the mouse.
         ch = st.hovered;
     else
         ch = st.hovered;

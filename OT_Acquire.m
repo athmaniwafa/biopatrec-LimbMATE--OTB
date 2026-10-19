@@ -27,6 +27,7 @@ classdef OT_Acquire < handle
         listener
         stopped = false;
         started = false;
+        receivedSamples = 0;
     end
 
     methods
@@ -100,6 +101,23 @@ classdef OT_Acquire < handle
         function startAcquisitionEMG(obj, varargin)
             % varargin ignored -- BioPatRec passes LM-style arguments.
             if obj.started, return; end
+            % Each movement starts a fresh acquisition on the same device.
+            if obj.stopped
+                obj.dev.CloseDevice();
+                if strcmp(obj.mode, 'bipolar')
+                    [obj.dev, obj.config] = config_bipolar(obj.Nch);
+                else
+                    [obj.dev, obj.config] = config_hd(obj.Nch, obj.config.Electrodes);
+                end
+                obj.dev.NewDataAvailableEventsPerSecond = 16;
+                obj.dev.OpenDevice();
+                obj.dev.InitializeDevice();
+            end
+            obj.readIndex = 1;
+            obj.writeIndex = 1;
+            obj.samplesAvailable = 0;
+            obj.bufferOverflow = false;
+            obj.receivedSamples = 0;
             obj.listener = addlistener(obj.dev, 'OnNewDataAvailable', @obj.onData);
             
             obj.stopped = false;
@@ -152,7 +170,13 @@ classdef OT_Acquire < handle
             pause(0.005);
     
             if toc(deadline) > 2
-                error('OT_Acquire: timeout waiting for %d samples.', N);
+                available = obj.samplesAvailable;
+                received = obj.receivedSamples;
+                obj.disconnectBTdevice();
+                error('OT_Acquire:DataTimeout', ...
+                    ['OT_Acquire: timeout waiting for %d samples ' ...
+                     '(available: %d, received since start: %d). Connection closed.'], ...
+                    N, available, received);
             end
     
         end
@@ -208,6 +232,7 @@ end
 
             nFrames = floor(numel(s) / obj.Nch);
             if nFrames < 1, return; end
+            obj.receivedSamples = obj.receivedSamples + nFrames;
 
             % Check buffer overflow
             if obj.bufferOverflow
