@@ -14,25 +14,26 @@ classdef LimbMateAdapter < DeviceInterface
         function start(obj, cfg)
             objLM = obj.objLM;
             objLM.enable_testmode = 0;
-            objLM.setSampleFreqGain(obj.sF, 4);
-            objLM.setElectrodesConfig("Differential");
+            objLM.setSampleFreqGain(obj.sF, 4); 
             
-            % Determine tWs (time window in samples)
-            if isfield(cfg, 'tWs') && ~isempty(cfg.tWs)
-                tWs = cfg.tWs;
+            % --- GUI MODE SELECTION ---
+            choice = questdlg('Select LimbMATE hardware mode:', 'LimbMATE Mode', ...
+                              'Differential (Bipolar)', 'Pre-amplified (Matrix)', 'Differential (Bipolar)');
+            
+            if isempty(choice)
+                choice = 'Differential (Bipolar)';
+            end
+            
+            if strcmp(choice, 'Pre-amplified (Matrix)')
+                objLM.setElectrodesConfig("Pre-amplified");
+                fprintf('[LM] Hardware set to Pre-amplified (Matrix) mode.\n');
             else
-                % Fallback: use 100ms window, matching RecordingSession defaults
-                tW = 100 / obj.sF;
-                if tW < 0.1
-                    tW = 0.1;
-                end
-                tWs = round(tW * obj.sF);
+                objLM.setElectrodesConfig("Differential");
+                fprintf('[LM] Hardware set to Differential (Bipolar) mode.\n');
             end
             
-            % Guard against uint8 saturation
-            if tWs > 255
-                tWs = 255;
-            end
+            if isfield(cfg, 'tWs') && ~isempty(cfg.tWs), tWs = cfg.tWs;
+            else, tWs = 100; end
             
             objLM.startAcquisitionEMG(1, uint8(255), uint8(tWs), uint8(0));
             objLM.packages_per_TW           = tWs / 5;
@@ -49,18 +50,26 @@ classdef LimbMateAdapter < DeviceInterface
         end
         
         function stop(obj)
-            try
-                obj.objLM.stopAcquisitionEMG();
-            catch
-            end
+            try, obj.objLM.stopAcquisitionEMG(); catch, end
         end
         
         function disconnect(obj)
-            try
-                obj.objLM.disconnectBTdevice();
-                delete(obj.objLM.serialObj);
-            catch
+            try, obj.objLM.disconnectBTdevice(); delete(obj.objLM.serialObj); catch, end
+        end
+    end
+    methods (Static)
+        function [adapter, nCh, vCh] = configure(handles)
+            % The dialog has already been opened by GUI_AFEselection.
+            if ~isfield(handles, 'objLM') || isempty(handles.objLM)
+                error('LimbMate not connected. Please try again.');
             end
+            
+            % NO GUI PARSING. NO sF PARSING. 
+            % Just return the adapter with default 8 channels.
+            nCh = 8; vCh = 1:8;
+            
+            % sF will be overwritten by FastRecordingSession/RecordingSession anyway
+            adapter = LimbMateAdapter(handles.objLM, nCh, 1000);
         end
     end
 end

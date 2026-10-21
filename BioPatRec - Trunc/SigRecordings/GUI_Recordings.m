@@ -106,7 +106,16 @@ set(handles.pm_features,'String',['Select feature:'; fID]);
 
 % Choose default command line output for GUI_Recordings
 handles.output = hObject;
-
+% --- ADD DISCONNECT BUTTON DYNAMICALLY ---
+% Place it next to the Start button
+btnPos = get(handles.pb_Start, 'Position');
+disconnectBtn = uicontrol(handles.figure1, 'Style', 'pushbutton', ...
+    'String', 'Disconnect', ...
+    'Units', 'normalized', ...
+    'Position', [btnPos(1) + btnPos(3) + 0.02, btnPos(2), btnPos(3), btnPos(4)], ...
+    'Callback', @pb_disconnect_Callback, ...
+    'Tag', 'pb_disconnect');
+handles.pb_disconnect = disconnectBtn;
 % Update handles structure
 guidata(hObject, handles);
 
@@ -709,18 +718,52 @@ function figure1_ResizeFcn(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-
+% --- Executes on button press in pb_Start.
+% --- Executes on button press in pb_Start.
+% --- Executes on button press in pb_Start.
 % --- Executes on button press in pb_Start.
 function pb_Start_Callback(hObject, eventdata, handles)
-% hObject    handle to pb_Start (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-    fast = 1;
+    global GLOBAL_ADAPTER;
+    global GLOBAL_AFE_SETTINGS;
+    
+    % Get the sampling time from the GUI textbox
     sT = str2double(get(handles.et_sT,'String'));
     tW = str2double(get(handles.et_tW,'String'));
-    handles.sT = sT;
-    handles.tW = tW;
-    GUI_AFEselection(0,0,0,0,0,handles,0,0,fast);
+    
+    % Check if BOTH the adapter and the settings exist
+    if ~isempty(GLOBAL_ADAPTER) && ~isempty(GLOBAL_AFE_SETTINGS)
+        % --- BYPASS AFE, RECORD DIRECTLY ---
+        fprintf('[GUI] Reusing existing adapter and settings. Starting recording immediately...\n');
+        
+        % Restore the settings struct
+        afeSettings = GLOBAL_AFE_SETTINGS;
+        afeSettings.adapter = GLOBAL_ADAPTER;
+        
+        % Ensure the settings struct has sT and tW for FastRecordingSession
+        afeSettings.sT = sT;
+        afeSettings.tW = tW;
+        
+        % Pass sT and tW to the GUI handles so FastRecordingSession can read them
+        handles.sT = sT;
+        handles.tW = tW;
+        
+        [cdata, sF, sT, sdata] = FastRecordingSession(handles, afeSettings);
+        
+        tempdata = cdata;
+        nCh = afeSettings.channels;
+        ComPortType = afeSettings.ComPortType;
+        deviceName = afeSettings.name;
+        plotType = afeSettings.plotType;
+        featureType = afeSettings.featureType;
+        save('cdata.mat','cdata','tempdata','sdata','sF','sT','nCh','ComPortType','deviceName','plotType','featureType');
+    else
+        % --- FIRST RUN OR MISSING SETTINGS: CALL AFE SELECTION ---
+        fprintf('[GUI] No saved settings found. Opening AFE Selection...\n');
+        fast = 1;
+        handles.sT = sT;
+        handles.tW = tW;
+        GUI_AFEselection(0,0,0,0,0,handles,0,0,fast);
+    end
 
 
 
@@ -1133,3 +1176,45 @@ function m_vRef_Callback(hObject, eventdata, handles)
     tempdata = tempdata - mean(tempdata,2)*ones(1,size(tempdata,2));
     DataShow(handles,tempdata,sF,sT);
     save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+
+% --- Executes on button press in pb_disconnect.
+% --- Executes on button press in pb_disconnect.
+% --- Executes on button press in pb_disconnect.
+function pb_disconnect_Callback(hObject, eventdata, handles)
+    global GLOBAL_ADAPTER;
+    global GLOBAL_AFE_SETTINGS;
+    
+    % 1. Try to close the hardware gracefully
+    if ~isempty(GLOBAL_ADAPTER)
+        try
+            GLOBAL_ADAPTER.disconnect();
+        catch ME
+            fprintf('Disconnect warning: %s\n', ME.message);
+        end
+    end
+    
+    % 2. Clear the global variables
+    GLOBAL_ADAPTER = [];
+    GLOBAL_AFE_SETTINGS = [];
+    
+    % 3. Clear any open serial ports (for legacy devices)
+    if ~isempty(instrfind('Status','open'))
+        fclose(instrfind('Status','open'));
+        delete(instrfind);
+    end
+    
+    % 4. Update the GUI message (only if handles and t_msg exist)
+    if nargin > 2 && ~isempty(handles) && isstruct(handles) && isfield(handles, 't_msg')
+        set(handles.t_msg, 'String', 'Disconnected. Ready for new connection.');
+    end
+    fprintf('[GUI] Hardware disconnected and globals cleared.\n');
+
+
+% --- Executes when user attempts to close figure1.
+function figure1_CloseRequestFcn(hObject, eventdata, handles)
+    % Call our disconnect function to clean up the hardware
+    % We do NOT pass handles here to avoid scoping issues during close
+    pb_disconnect_Callback(hObject, eventdata, []); 
+    
+    % Delete the GUI window
+    delete(hObject);

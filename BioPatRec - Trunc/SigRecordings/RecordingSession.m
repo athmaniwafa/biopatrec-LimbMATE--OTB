@@ -12,14 +12,6 @@
 % --------------------------Updates--------------------------
 % 2009-04-17 / Max Ortiz  / Creation
 % 2015-01-12 / Enzo Mastinu / Divided the RecordingSession function
-% 2015-01-26 / Enzo Mastinu / A new GUI_Recordings has been developed
-% 2015-10-28 / Martin Holder / >2014b plot interface fixes
-% 2015-11-27 / Enzo Mastinu  / It has been added the possibility to repeat
-% 2016-05-11 / Niclas Nilsson / DataAnalysis was added
-% 2017-02-28 / Simon Nilsson / Changed time window size to 200 samples
-% 2018-07-09 / Andreas Eiler / Added function to change current folder to load Myo.dll
-% 2018-09-26 / Adam naber / Added sensorData field for additional sensors
-% 2019-03-06 / Bahareh Ahkami / Bar plot added to the system
 
 function [cdata, sF, sensorData] = RecordingSession(varargin)
 
@@ -55,6 +47,11 @@ deviceName   = afeSettings.name;
 ComPortType  = afeSettings.ComPortType;
 plotType     = afeSettings.plotType;
 featureType  = afeSettings.featureType;
+
+% STRICT FAIL-SAFE: Never let these devices use NI DAQ
+if isSQplus(deviceName) || isLimbMATE(deviceName) || isOTB400(deviceName)
+    ComPortType = 'COM';
+end
 
 if isfield(afeSettings,'compressData')
     compressData = afeSettings.compressData;
@@ -92,7 +89,7 @@ sT            = cT+rT;
 handles.sTall = sTall;
 handles.sT    = sT;
 
-% Setting for data peeking
+% Time window size
 if isOTB400(deviceName)
     tWs = 256;
     tW = tWs/sF;
@@ -281,14 +278,16 @@ while ex <= nM
     end
 
     %% Draw figure
-    p_f0 = plot(handles.a_f0, timeStamps, fData);
-    handles.p_f0 = p_f0;
-    xlim(handles.a_f0, [0,sF/2]);
-    ylim(handles.a_f0, [ymin ymax]);
-    set(handles.a_f0,'YTick',offVector);
-    set(handles.a_f0,'YTickLabel',0:nCh-1);
+    if isvalid(handles.a_f0)
+        p_f0 = plot(handles.a_f0, timeStamps, fData);
+        handles.p_f0 = p_f0;
+        xlim(handles.a_f0, [0,sF/2]);
+        ylim(handles.a_f0, [ymin ymax]);
+        set(handles.a_f0,'YTick',offVector);
+        set(handles.a_f0,'YTickLabel',0:nCh-1);
+    end
     
-    if strcmp(handles.plotType,'Raw Signal')
+    if strcmp(handles.plotType,'Raw Signal') && isvalid(handles.a_t0)
         p_t0 = plot(handles.a_t0, timeStamps, sData);
         handles.p_t0 = p_t0;
         xlim(handles.a_t0, [0,tW]);
@@ -297,7 +296,7 @@ while ex <= nM
         set(handles.a_t0,'YTickLabel',0:nCh-1);
     end
     
-    if strcmp(handles.plotType,'Bar Chart')
+    if strcmp(handles.plotType,'Bar Chart') && isvalid(handles.a_t0)
         fID=handles.featureType;
         features = ExtractSigFeatureOnline(sData,sF,fID);
         p_t0 = bar(handles.a_t0, features);
@@ -486,7 +485,9 @@ while ex <= nM
         errordlg('Error occurred during the acquisition!','Error');
         return
     else
-        DataShow(handles, allData, sF, sTall);
+        if isvalid(handles.a_t0)
+            DataShow(handles, allData, sF, sTall);
+        end
         
         if movRepeatDlg
             prompt = {'Do you want to record this movement again? (y/n)'};
@@ -510,12 +511,14 @@ end
 cdata = recSessionData(:,:,:);
 
 if saveRec
-    set(handles.t_msg,'String','Session Terminated');
+    if isvalid(handles.t_msg), set(handles.t_msg,'String','Session Terminated'); end
     fileName = 'Img/Agree.jpg';
     movI = importdata(fileName);
-    set(handles.a_pic,'Visible','on');
-    pic = image(movI,'Parent',handles.a_pic);
-    axis(handles.a_pic,'off');
+    if isvalid(handles.a_pic)
+        set(handles.a_pic,'Visible','on');
+        pic = image(movI,'Parent',handles.a_pic);
+        axis(handles.a_pic,'off');
+    end
     
     recSession.sF       = sF;
     recSession.sT       = sTall;
@@ -562,31 +565,36 @@ if saveRec
         fclose(handles.vreCommunication);
     end
     
-    set(handles.a_prog,'visible','off');
-    if rampStatus
+    if isvalid(handles.a_prog), set(handles.a_prog,'visible','off'); end
+    if rampStatus && isvalid(handles.a_effortPlot)
         set(handles.a_effortPlot,'visible','off');
         set(handles.txt_effortPlot,'visible','off');
-        set(p_effortPlot,'visible','off');
-        set(handles.hLine,'visible','off');
+        if isvalid(p_effortPlot), set(p_effortPlot,'visible','off'); end
+        if isvalid(handles.hLine), set(handles.hLine,'visible','off'); end
     end
-    set(handles.hPatch,'Xdata',[0 0 0 0]);
+    if isfield(handles,'hPatch') && isvalid(handles.hPatch)
+        set(handles.hPatch,'Xdata',[0 0 0 0]);
+    end
     
-    set(handles.uipanel9,'Visible','on');
-    set(handles.uipanel10,'Visible','on');
-    set(handles.uibuttongroup1,'Visible','on');
-    set(handles.uipanel7,'Visible','on');
-    set(handles.uipanel8,'Visible','on');
-    set(handles.txt_it,'visible','on');
-    set(handles.txt_ft,'visible','on');
-    set(handles.et_it,'visible','on');
-    set(handles.et_ft,'visible','on');
-    set(handles.txt_if,'visible','on');
-    set(handles.txt_ff,'visible','on');
-    set(handles.et_if,'visible','on');
-    set(handles.et_ff,'visible','on');
+    if isvalid(handles.uipanel9), set(handles.uipanel9,'Visible','on'); end
+    if isvalid(handles.uipanel10), set(handles.uipanel10,'Visible','on'); end
+    if isvalid(handles.uibuttongroup1), set(handles.uibuttongroup1,'Visible','on'); end
+    if isvalid(handles.uipanel7), set(handles.uipanel7,'Visible','on'); end
+    if isvalid(handles.uipanel8), set(handles.uipanel8,'Visible','on'); end
     
-    chVector = 0:nCh-1;
-    set(handles.lb_channels, 'String', chVector);
+    if isvalid(handles.txt_it), set(handles.txt_it,'visible','on'); end
+    if isvalid(handles.txt_ft), set(handles.txt_ft,'visible','on'); end
+    if isvalid(handles.et_it), set(handles.et_it,'visible','on'); end
+    if isvalid(handles.et_ft), set(handles.et_ft,'visible','on'); end
+    if isvalid(handles.txt_if), set(handles.txt_if,'visible','on'); end
+    if isvalid(handles.txt_ff), set(handles.txt_ff,'visible','on'); end
+    if isvalid(handles.et_if), set(handles.et_if,'visible','on'); end
+    if isvalid(handles.et_ff), set(handles.et_ff,'visible','on'); end
+    
+    if isvalid(handles.lb_channels)
+        chVector = 0:nCh-1;
+        set(handles.lb_channels, 'String', chVector);
+    end
     
     dlgTitle    = 'Analyze Data';
     dlgQuestion = 'Would you like to analyze and correct this recording session';
