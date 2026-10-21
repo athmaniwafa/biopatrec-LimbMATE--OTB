@@ -142,15 +142,27 @@ ampPP     = 5;
 offVector = 0:nCh-1;
 offVector = offVector .* ampPP;
 
-if offsetDelete
+% --- FORCE OFFSET REMOVAL ONLY FOR LIMBMATE ---
+if isfield(handles, 'deviceName') && isLimbMATE(handles.deviceName)
+    offset = mean(tempData);
+    for j = 1 : nCh
+        tempData(:,j) = tempData(:,j) - offset(j);
+    end
+elseif offsetDelete
     offset = mean(tempData);
     for j = 1 : nCh
         tempData(:,j) = tempData(:,j) - offset(j);
     end
 end
 
+% Prevent division by zero if the signal is perfectly flat
+if max(max(abs(tempData))) == 0
+    K = 1; 
+else
+    K = ampPP/(2*(max(max(abs(tempData)))));
+end
+
 Kf = ampPP/(2*(max(max(abs(m)))));
-K = ampPP/(2*(max(max(abs(tempData)))));
 if K < plotGain
     plotGain = K;
 end

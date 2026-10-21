@@ -18,15 +18,15 @@ classdef LimbMateAdapter < DeviceInterface
             
             % --- GUI MODE SELECTION ---
             choice = questdlg('Select LimbMATE hardware mode:', 'LimbMATE Mode', ...
-                              'Differential (Bipolar)', 'Pre-amplified (Matrix)', 'Differential (Bipolar)');
+                              'Differential (Bipolar)', 'Pre-amplified ', 'Differential (Bipolar)');
             
             if isempty(choice)
                 choice = 'Differential (Bipolar)';
             end
             
-            if strcmp(choice, 'Pre-amplified (Matrix)')
+            if strcmp(choice, 'Pre-amplified ')
                 objLM.setElectrodesConfig("Pre-amplified");
-                fprintf('[LM] Hardware set to Pre-amplified (Matrix) mode.\n');
+                fprintf('[LM] Hardware set to Pre-amplified mode.\n');
             else
                 objLM.setElectrodesConfig("Differential");
                 fprintf('[LM] Hardware set to Differential (Bipolar) mode.\n');

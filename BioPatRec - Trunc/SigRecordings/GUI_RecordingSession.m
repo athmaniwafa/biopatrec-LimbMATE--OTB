@@ -365,19 +365,23 @@ function et_msg_Callback(hObject, eventdata, handles)
 
 
 % --- Executes on button press in pb_Record.
+% --- Executes on button press in pb_Record.
 function pb_Record_Callback(hObject, eventdata, handles)
     % get the EMG_AQ Handles
     fast = 0;
     h1 = GUI_Recordings(fast); 
     hGUI_Rec = guidata(h1);
+    
+    % --- FORCE OFFSET DELETE FOR LIVE VIEW ---
+    % This ensures the live plot subtracts the DC offset so you can see the signal
+    if isfield(hGUI_Rec, 'cb_offset')
+        set(hGUI_Rec.cb_offset, 'Value', 1);
+    end
+    
     rampStatus = get(handles.pm_trainingCurve,'Value')-1;
     movRepeatDlg = get(handles.cb_movRepeatDlg,'Value');
     useLeg = get(handles.tb_armLeg, 'Value');
     
-    %psr = str2double(get(handles.et_Psr,'String'));   % Percentage of the exercise time to be consider for training
-    %sF = str2double(get(handles.et_Fs,'String'));     % Sampling Frequency
-    %nM = str2double(get(handles.et_Ne,'String'));     % number of exercises or movements
-
     nR = str2double(get(handles.et_Nr,'String'));     % number of excersice repetition
     cT = str2double(get(handles.et_Tc,'String'));     % time that the contractions should last
     rT = str2double(get(handles.et_Tr,'String'));     % relaxing time
@@ -395,12 +399,9 @@ function pb_Record_Callback(hObject, eventdata, handles)
     vreMovements = num2cell(tempMovements);
     
     % Simultaneous movements
-    % Only for pairs 
     if get(handles.cb_simultaneous,'Value');     % sim mov
-        %Validate is a pair number
-        pF = factor(nM);     % Prime factor        
+        pF = factor(nM);     
         if pF(1) == 2
-            % Create combinations by 2
             newM = 0;
             for i = 1 : 2:  nM
                 for j = i+2 : nM
@@ -413,7 +414,6 @@ function pb_Record_Callback(hObject, eventdata, handles)
             end
             nM = nM + newM;
 
-            % Create combinations by 3
             if size(movN,2) >= 6
                 newM = 0;
                 for i = 1 : 2 :  size(movN,2)

@@ -66,11 +66,19 @@ if not(isempty(instrfind('Status','open')))
 end
 
 % Get devices name
+% Get devices name
 dev = get(handles.pm_name,'String');
 selDev = get(handles.pm_name,'Value');
 AFE_settings.name = dev(selDev);
 deviceName = AFE_settings.name;
 
+% --- OVERRIDE: If a LimbMATE is connected, force the device to LimbMATE ---
+% (This prevents the NI DAQ crash if the dropdown was left on AD2)
+if isfield(handles, 'objLM') && ~isempty(handles.objLM)
+    deviceName = 'LimbMATE';
+    AFE_settings.name = deviceName;
+    fprintf('[GUI] Forcing device to LimbMATE to bypass NI DAQ.\n');
+end
 % ---- LimbMate: ensure a connection exists ----
 if isLimbMATE(deviceName)
     if ~isfield(handles, 'objLM') || isempty(handles.objLM)
