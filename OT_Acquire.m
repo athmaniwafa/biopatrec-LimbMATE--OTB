@@ -27,6 +27,7 @@ classdef OT_Acquire < handle
         listener
         stopped = false;
         started = false;
+        deviceOpen = false;
         receivedSamples = 0;
     end
 
@@ -80,6 +81,7 @@ classdef OT_Acquire < handle
             % Open + initialise
             obj.dev.NewDataAvailableEventsPerSecond = 16;
             obj.dev.OpenDevice();
+            obj.deviceOpen = true;
             obj.dev.InitializeDevice();
 
             acquired = double(obj.dev.GetAcquiredChannels());
@@ -102,8 +104,11 @@ classdef OT_Acquire < handle
             % varargin ignored -- BioPatRec passes LM-style arguments.
             if obj.started, return; end
             % Each movement starts a fresh acquisition on the same device.
-            if obj.stopped
-                obj.dev.CloseDevice();
+            if obj.stopped || ~obj.deviceOpen
+                if obj.deviceOpen
+                    obj.dev.CloseDevice();
+                    obj.deviceOpen = false;
+                end
                 if strcmp(obj.mode, 'bipolar')
                     [obj.dev, obj.config] = config_bipolar(obj.Nch);
                 else
@@ -111,6 +116,7 @@ classdef OT_Acquire < handle
                 end
                 obj.dev.NewDataAvailableEventsPerSecond = 16;
                 obj.dev.OpenDevice();
+                obj.deviceOpen = true;
                 obj.dev.InitializeDevice();
             end
             obj.readIndex = 1;
@@ -215,7 +221,15 @@ end
         function disconnectBTdevice(obj)
             % Name kept for BioPatRec compatibility
             try obj.stopAcquisitionEMG(); catch, end
-            try obj.dev.CloseDevice();    catch, end
+            if obj.deviceOpen
+                try
+                    obj.dev.CloseDevice();
+                    obj.deviceOpen = false;
+                catch ME
+                    warning('OT_Acquire:CloseFailed', '%s', ME.message);
+                end
+            end
+            obj.stopped = true;
         end
 
         function delete(obj)

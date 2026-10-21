@@ -1,14 +1,17 @@
 function panel = OTB400_OpenRecordingMap(afeSettings, h)
 
 panel = [];
-if ~isfield(h,'a_t0') || ~isscalar(h.a_t0) || ...
-        ~isgraphics(h.a_t0,'axes')
-    error('OTB400:InvalidGUI', ...
-        'Chiudi e riapri la finestra di registrazione.');
-end
-mainFig = ancestor(h.a_t0, 'figure');
 
-% Remove the panel from the previous recording.
+% Usa il riferimento alla figura, indipendentemente dalla mappa HD.
+if ~isfield(h, 'output') || ~isscalar(h.output) || ...
+        ~isgraphics(h.output, 'figure')
+    error('OTB400:InvalidGUI', ...
+        'La finestra di registrazione non è valida.');
+end
+
+mainFig = h.output;
+
+% Reset previous state
 OTB400_ChannelMap('remove', mainFig);
 delete(findall(mainFig, 'Tag', 'OTBRecordingPanel'));
 
@@ -16,11 +19,20 @@ if isappdata(mainFig, 'OTBRecordingRefresh')
     rmappdata(mainFig, 'OTBRecordingRefresh');
 end
 
-% The electrode grid is available only for the OTB400 HD adapter.
+% Delete HD map if we are not using OTB400HD
 if ~strcmp(char(afeSettings.name), 'OTB400_HD')
     return
 end
 
+if ~isfield(h, 'a_t0') || ~isscalar(h.a_t0) || ...
+        ~isgraphics(h.a_t0, 'axes')
+    error('OTB400:InvalidGUI', ...
+        'Il grafico della registrazione HD non è valido.');
+end
+
+if ~isfield(afeSettings, 'OTB400Electrodes')
+    error('Seleziona prima gli elettrodi HD.');
+end
 if ~isfield(afeSettings, 'OTB400Electrodes')
     error('Seleziona prima gli elettrodi HD.');
 end
