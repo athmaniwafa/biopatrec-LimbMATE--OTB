@@ -249,6 +249,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
                 end
             end
             handles.objOT = objOT;
+            otCleanup = onCleanup(@() objOT.disconnectBTdevice());
         end
 
         %% Start the connection with Sessantaquattro+ (TCP)
@@ -256,6 +257,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
             sqDuration = max(60, handles.sT + 10);
             objSQ = Sessantaquattro_Acquire(handles.nCh, sqDuration, 45454);
             handles.objSQ = objSQ;
+            sqCleanup = onCleanup(@() objSQ.disconnectBTdevice());
         end
 
         % Connect the chosen device, it returns the connection object

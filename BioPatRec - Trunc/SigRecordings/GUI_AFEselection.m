@@ -137,6 +137,15 @@ function pb_record_Callback(hObject, eventdata, handles)
 % handles    structure with handles and user data (see GUIDATA)
 % get(handles.cb_active0,'Value')
 
+if isappdata(hObject, 'RecordingBusy') && ...
+        getappdata(hObject, 'RecordingBusy')
+    return
+end
+
+setappdata(hObject, 'RecordingBusy', true);
+set(hObject, 'Enable', 'off');
+recordingCleanup = onCleanup(@() releaseRecordButton(hObject));
+
 global offsetDelete;
 offsetDelete = get(handles.cb_offset,'Value');
 
@@ -287,7 +296,26 @@ nR=handles.varargin{2};
 cT=handles.varargin{3};
 rT=handles.varargin{4};
 mov=handles.varargin{5};
-hGUI_Rec=handles.varargin{6};
+
+hGUI_Rec = handles.varargin{6};
+% Fast recording uses GUI_Recordings. Keep session parameters supplied
+% by its Start callback, while refreshing the current GUI controls.
+if handles.varargin{9} == 1
+    recordingFig = GUI_Recordings(1);
+    currentGUI = guidata(recordingFig);
+    fields = fieldnames(currentGUI);
+    for k = 1:numel(fields)
+        hGUI_Rec.(fields{k}) = currentGUI.(fields{k});
+    end
+    % These values are set locally by pb_Start_Callback, not in guidata.
+    hGUI_Rec.sT = str2double(get(hGUI_Rec.et_sT, 'String'));
+    hGUI_Rec.tW = str2double(get(hGUI_Rec.et_tW, 'String'));
+    validateattributes(hGUI_Rec.sT, {'numeric'}, ...
+        {'scalar','real','finite','positive'});
+    validateattributes(hGUI_Rec.tW, {'numeric'}, ...
+        {'scalar','real','finite','positive'});
+end
+
 vreMovements = handles.varargin{7};
 rampStatus = handles.varargin{8};
 mode = handles.varargin{9};
@@ -1019,3 +1047,9 @@ function cb_compressionEnable_Callback(hObject, eventdata, handles)
 % handles    structure with handles and user data (see GUIDATA)
 
 % Hint: get(hObject,'Value') returns toggle state of cb_compressionEnable
+
+function releaseRecordButton(button)
+    if isgraphics(button)
+        setappdata(button, 'RecordingBusy', false);
+        set(button, 'Enable', 'on');
+    end
