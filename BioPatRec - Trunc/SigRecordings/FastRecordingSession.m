@@ -48,6 +48,9 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     handles.lmRecordedSamples = [];
     afeSettings  = varargin{2};
 
+    % Refresh the HD grid, or remove it when switching to another device.
+    handles.OTBRecordingMap = OTB400_OpenRecordingMap(afeSettings, handles);
+
     % Get required informations from afeSettings structure
     nCh          = afeSettings.channels;
     sF           = afeSettings.sampleRate;
