@@ -52,7 +52,7 @@ if(isempty(allData))                                                   % Fist DA
 end
 tempData = event.Data;
 
-if isfield(handles, 'OTBRecordingMap') && isgraphics(handles.OTBRecordingMap)
+if isfield(handles, 'OTBRecordingMap') && all(isgraphics(handles.OTBRecordingMap))
     mapAx = getappdata(handles.OTBRecordingMap, 'RecordingMapAxes');
     if isgraphics(mapAx, 'axes') && ~isempty(tempData)
         OTB400_ChannelMap('preview', mapAx, tempData);

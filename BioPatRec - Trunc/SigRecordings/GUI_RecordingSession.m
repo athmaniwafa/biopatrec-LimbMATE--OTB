@@ -350,8 +350,9 @@ function et_msg_Callback(hObject, eventdata, handles)
 
     movS = get(handles.et_msg,'String');
     movN = get(handles.et_msg,'Value');
-    
-    mov = movS(movN(1));
+    nM = length(movN);
+    mov = movS(movN);
+    allMovements = InitMovements();
     
     %backgroundImage = importdata(['Img/mov' num2str(num) '.JPG']);
     % If the image does not exist, we display a dummy image. 

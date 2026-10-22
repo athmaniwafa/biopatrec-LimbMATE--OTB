@@ -24,6 +24,7 @@ nM           = varargin{1};
 nR           = varargin{2};
 cT           = varargin{3};
 rT           = varargin{4};
+mov          = varargin{5};
 handles      = varargin{6};
 afeSettings  = varargin{7};
 trainWithVr  = varargin{8};
@@ -209,6 +210,13 @@ end
 
 
 %% Starting Session..
+
+% --- START THE HARDWARE NOW (Pops up the mode selection) ---
+if isfield(afeSettings, 'adapter') && ~isempty(afeSettings.adapter)
+    fprintf('[RecordingSession] Starting hardware adapter...\n');
+    afeSettings.adapter.start(afeSettings);
+end
+
 set(handles.t_msg,'String','Get ready to start: 3'); pause(1);
 set(handles.t_msg,'String','Get ready to start: 2'); pause(1);
 set(handles.t_msg,'String','Get ready to start: 1'); pause(1);
@@ -373,7 +381,6 @@ while ex <= nM
         
         % --- ADAPTER PATTERN ---
         dev = afeSettings.adapter;
-        dev.start(afeSettings);
         
         for rep = 1 : nR
             rep
