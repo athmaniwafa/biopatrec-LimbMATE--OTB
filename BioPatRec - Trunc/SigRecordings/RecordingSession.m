@@ -6,88 +6,12 @@
 % BioPatRec was initially developed by Max J. Ortiz C. at Integrum AB and
 % Chalmers University of Technology. All authors’ contributions must be kept
 % acknowledged below in the section "Updates % Contributors".
-%
-% Would you like to contribute to science and sum efforts to improve
-% amputees’ quality of life? Join this project! or, send your comments to:
-% maxo@chalmers.se.
-%
-% The entire copyright notice must be kept in this or any source file
-% linked to BioPatRec. This will ensure communication with all authors and
-% acknowledge contributions here and in the project web page (optional).
 % ------------------- Function Description ------------------
 % Function to Record Exc Sessions
 %
 % --------------------------Updates--------------------------
 % 2009-04-17 / Max Ortiz  / Creation
-% 2009-06-29 / Max Ortiz  / A dummy repeticion added before start recording
-% 2011-06-00 / Per and Gustav  / Added the analog front end sections
-% 2011-06-29 / Max Ortiz  / Optimization to be integrated in the whole system and Fixed to new coding standard.
-% Any filtering was removed from this routine
-% Filtering and any other signal processing should be done in
-% a singal treatment routine
-% 2011-08-04 / Max Ortiz  / The 10% of extra indication for the user
-% to contract was removed.
-% 2012-02-xx / Max Ortiz  / Upgrade DAQ routines for MATLAB R2011b, SBI
-% Old version was kept as:
-% RecordinSession_Legacy
-% 2012-03-27 / Max Ortiz  / Bug fixed when an arbitrary selection of channels
-% However, the NI doesn't allow to skip channels
-% 2012-04-30 / Max Ortiz  / The possibility of simultaneous recordings was
-% was removed since it didn't worked with the SBI
-% in the current implementation. To see how the
-% simultaneus recordings were done, see
-% RecordingSession_Legacy
-% 2012-12-07 / Nichlas Sander / Added VRE as an option during training.
-% Movements to display are loaded in
-% varargin{8}. This since previous movements
-% were simply loaded as strings.
-% 2013-03-07 / Nichlas Sander / When training Arm Flex/Extend the system
-% will automatically change the view so the
-% user can see the movement.
-% 2013-08-23 / Morten Kristoffersen / Updated the recording sessions to support
-% the new GUI_AFESelection structure
-% 2014-11-10 / Enzo Mastinu / include routines for ADS1299 AFE recordings using
-% the "afeSettings.name" property to differentiate them,
-% add the ramp routines, set the time window
-% size to be samplingTime/100, delete the
-% peeking time field in the GUI, RMS mean is done
-% "manually" for Matlab compatibility
-% reasons
-% 2015-01-12 / Enzo Mastinu / Divided the RecordingSession function into
-% several functions: ConnectDevice(),
-% SetDeviceStartAcquisition(),
-% Acquire_tWs(), StopAcquisition().
-% These functions has been moved into COMM/AFE
-% folder in separate files. All the parameters
-% pass and global variables has been optimized
-% due to the new functions. Now this file is
-% totally independent from the inner working of
-% the all devices. In this way, to introduce a
-% new device for acquisition you need to modify
-% the files in COMM folder, leaving the recording
-% session file almost inalterate.
-% 2015-01-26 / Enzo Mastinu / A new GUI_Recordings has been developed for the
-% BioPatRec_TRE release. Now it is possible to
-% plot more then 8 channels at the same moment, for
-% time and frequency plots both. It is faster and
-% perfectly compatible with the ramp recording
-% session. At the end of the recording session it
-% is possible to check all channels individually,
-% apply offline data process as feature extraction or filter etc.
-% 2015-10-28 / Martin Holder / >2014b plot interface fixes
-% 2015-11-27 / Enzo Mastinu  / It has been added the possibility to repeat 
-%                              the same movement recording if needed.
-% 2016-05-11 / Niclas Nilsson / DataAnalysis was added
-% 2017-02-28 / Simon Nilsson / Changed time window size to 200 samples
-                            % when acquiring data using the RHA2132 for
-                            % the buffered acquisition mode to work well.
-% 2018-07-09 / Andreas Eiler / Added function to change current folder to load
-                            % Myo.dll file correctly
-% 2018-09-26 / Adam naber / Added sensorData field for additional sensors
-% 2019-03-06 / Bahareh Ahkami / Bar plot added to the system                         
-% 20xx-xx-xx / Author  / Comment
-
-
+% 2015-01-12 / Enzo Mastinu / Divided the RecordingSession function
 
 function [cdata, sF, sensorData] = RecordingSession(varargin)
 
@@ -102,13 +26,12 @@ cT           = varargin{3};
 rT           = varargin{4};
 mov          = varargin{5};
 handles      = varargin{6};
-handles.lmRecordedSamples = [];
 afeSettings  = varargin{7};
 trainWithVr  = varargin{8};
 vreMovements = varargin{9};
 vreLeftHand  = varargin{10};
 movRepeatDlg = varargin{11};
-useLeg      = varargin{12};
+useLeg       = varargin{12};
 rampStatus   = varargin{13};
 saveRec     = true;
 
@@ -126,15 +49,16 @@ ComPortType  = afeSettings.ComPortType;
 plotType     = afeSettings.plotType;
 featureType  = afeSettings.featureType;
 
-% --- Diagnostic: shows exactly what deviceName BioPatRec passes to the LM branch ---
-fprintf('DEBUG deviceName=[%s]  length=%d  class=%s\n', ...
-        char(deviceName), numel(char(deviceName)), class(deviceName));
+% STRICT FAIL-SAFE: Never let these devices use NI DAQ
+if isSQplus(deviceName) || isLimbMATE(deviceName) || isOTB400(deviceName)
+    ComPortType = 'COM';
+end
 
 if isfield(afeSettings,'compressData')
-        compressData = afeSettings.compressData;
-    else
-        compressData = 0;
-    end
+    compressData = afeSettings.compressData;
+else
+    compressData = 0;
+end
 if isfield(afeSettings,'vChannels')
     vCh = afeSettings.vChannels;
     handles.vCh = vCh;
@@ -166,138 +90,46 @@ sT            = cT+rT;
 handles.sTall = sTall;
 handles.sT    = sT;
 
-% Setting for data peeking
 % Time window size
-% Window of 100 samples works usually well
 if isOTB400(deviceName)
-    tWs = 256; % Time window samples
+    tWs = 256;
     tW = tWs/sF;
-
 elseif isSQplus(deviceName)
-    tWs = 200; % 200 ms at 1000 Hz
+    tWs = 200;
     tW = tWs/sF;
-
 else
     tW = 100/sF;
     if tW < 0.1
-	    tW = 0.1; % to avoid delays due to graphics
+        tW = 0.1;
     end
-    
     if mod(sT,tW) > 0
         errordlg('Please, the time window size must be a multiple of the recording time. Select a proper time window size!')
         return
     end
-    tWs           = tW*sF;   % Time window samples
+    tWs = tW*sF;
 end
 
 handles.tWs = tWs;
-timeStamps = (0:tWs-1)/sF; % Create vector of time
-
-if isOTB400(deviceName)
-
-    nWindows = sT * sF / tWs;
-
-    if abs(nWindows - round(nWindows)) > 1e-9
-        error(['OTB400: recording time must be a multiple of %.3f seconds.'], tW);
-    end
-
-end
-
-%% Start the connection with Limb-MATE
-if isLimbMATE(deviceName)
-    objLM = GetRecordingLimbMATE(afeSettings, ComPortName);
-    lmCleanup = onCleanup(@() objLM.closeRecording());
-
-    % Read the acquisition parameters currently stored on the board.
-    objLM.getAcquisitionParams();
-
-    % --- diagnostic ---
-    fprintf('DEBUG tw_samples (decoded) = %d, two_samples (decoded) = %d\n', ...
-            objLM.tw_samples, objLM.two_samples);
-    fprintf('DEBUG channels_encoded = %d, enable_testmode = %d, enabled_filters = %d\n', ...
-            objLM.channels_encoded, objLM.enable_testmode, objLM.enabled_filters);
-
-    % --- BioPatRec EMG-only setup ---
-    objLM.enable_testmode = 0;
-    objLM.setSampleFreqGain(sF, 4);
-    objLM.setElectrodesConfig("Differential");
-
-    active_channels_encoded = uint8(255);
-    samples_tw_encoded         = uint8(tWs);
-    samples_tw_overlap_encoded = uint8(0);
-
-    % Streaming starts in SetDeviceStartAcquisition for each movement.
-
-    objLM.packages_per_TW           = tWs / 5;
-    objLM.packages_per_TW_increment = tWs / 5;
-
-    fprintf('DEBUG packages_per_TW = %d, packages_per_TW_increment = %d\n', ...
-            objLM.packages_per_TW, objLM.packages_per_TW_increment);
-end
-%% Start connection with OTB400
-if isOTB400(deviceName)
-    % Reuse the connection passed from the AFE window
-    if isfield(afeSettings, 'objOT') && ~isempty(afeSettings.objOT)
-        fprintf('Reusing existing OTB400 connection\n');
-        objOT = afeSettings.objOT;
-    else
-        fprintf('Creating new OTB400 connection\n');
-        otDuration = max(120, sTall + 20);
-        if contains(deviceName, 'HD')
-            electrodeConfig = afeSettings.OTB400Electrodes;
-            objOT = OT_Acquire('hd', nCh, otDuration, electrodeConfig);
-        else
-            objOT = OT_Acquire('bipolar', nCh, otDuration);
-        end
-    end
-    handles.objOT = objOT;
-end
-
-%% Start connection with Sessantaquattro+ (TCP)
-if isSQplus(deviceName)
-    % Reuse the connection passed from the AFE window
-    if isfield(afeSettings, 'objSQ') && ~isempty(afeSettings.objSQ)
-        fprintf('Reusing existing SQ+ connection\n');
-        objSQ = afeSettings.objSQ;
-    else
-        fprintf('Creating new SQ+ connection\n');
-        sqDuration = max(120, sTall + 20);
-        objSQ = Sessantaquattro_Acquire(nCh, sqDuration, 45454);
-    end
-    handles.objSQ = objSQ;
-end
+timeStamps = (0:tWs-1)/sF;
 
 %% Initialize GUI..
-
-% Initialization of the VRE for training if required
 if trainWithVr
-    % Parameters for the movement in the VRE
     distance = 60;
     numJumps = 30;
-    % Open and connect to the VRE
     open('Virtual Reality.exe');
     handles.vreCommunication = tcpip('127.0.0.1',23068,'NetworkRole','server');
     fopen(handles.vreCommunication);
-    
-    %Set up VRE to not return any data. This will speed up the
-    %communication.
     fwrite(handles.vreCommunication,sprintf('%c%c%c%c%c','c',char(7),char(0),char(0),char(0)));
-    
     if(useLeg == 1)
         fwrite(handles.vreCommunication,sprintf('%c%c%c%c','c',char(1),char(2),char(1)));
     else
         fwrite(handles.vreCommunication,sprintf('%c%c%c%c','c',char(1),char(1),char(1)));
     end
-    
-    % Send value to show Arm if that value is chosen.
     sent = 0;
     for i = 1:nM
         for j = 1:length(vreMovements{i})
             movement = vreMovements{i}{j};
             if ismember(movement.id,[20 21]) && sent == 0
-                % The pauses is to fix a bug where the VRE would not
-                % react to the commands. I believe this is because a
-                % lot of commands are sent directly after each other.
                 pause(0.1);
                 fwrite(handles.vreCommunication,sprintf('%c%c%c%c%c','c',char(6),char(1),char(0),char(0)));
                 pause(0.1);
@@ -305,7 +137,6 @@ if trainWithVr
             end
         end
     end
-    
     if vreLeftHand
         fwrite(handles.vreCommunication,sprintf('%c%c%c%c%c','c',char(5),char(1),char(0),char(0)));
         pause(0.1);
@@ -329,10 +160,8 @@ end
 
 if rampStatus
     rampParams = varargin{14};
-    % make the ramp objects visible
     set(handles.a_effortPlot,'Visible','on');
     set(handles.txt_effortPlot,'Visible','on');
-    % Init the effort tracking plot and draw the guide line
     if rampStatus == 1
         p_effortPlot = plot(handles.a_effortPlot,linspace(0,cT,sF*cT),linspace(0,100,sF*cT),'LineWidth',2);
         xlim(handles.a_effortPlot, [0 cT]);
@@ -370,7 +199,6 @@ drawnow update
 
 % Allocation of resource to improve speed, total data
 recSessionData = zeros(sF*sTall, nCh, nM);
-recordingIntegrity = cell(1,nM);
 if isfield(afeSettings,'useAcceleGlove') && afeSettings.useAcceleGlove == 1
     useAcceleGlove = 1;
     sensorData.accelerometers = zeros(18,sT/tW);
@@ -383,14 +211,16 @@ end
 
 %% Starting Session..
 
-% Warning to the user
-set(handles.t_msg,'String','Get ready to start: 3');
-pause(1);
-set(handles.t_msg,'String','Get ready to start: 2');
-pause(1);
-set(handles.t_msg,'String','Get ready to start: 1');
-pause(1);
-if(useLeg == 1) % Import Image
+% --- START THE HARDWARE NOW (Pops up the mode selection) ---
+if isfield(afeSettings, 'adapter') && ~isempty(afeSettings.adapter)
+    fprintf('[RecordingSession] Starting hardware adapter...\n');
+    afeSettings.adapter.start(afeSettings);
+end
+
+set(handles.t_msg,'String','Get ready to start: 3'); pause(1);
+set(handles.t_msg,'String','Get ready to start: 2'); pause(1);
+set(handles.t_msg,'String','Get ready to start: 1'); pause(1);
+if(useLeg == 1)
     relax = importdata('Img/relaxLeg.jpg');
 else
     relax = importdata('Img/relax.jpg');
@@ -401,38 +231,32 @@ drawnow;
 ex = 1;
 while ex <= nM
     
-    timeStamps = (0:tWs-1)/sF;                                     % Timestamps used the time vector
-    currentTv = 1;                                                     % Current time vector
-    tV = timeStamps(currentTv):1/sF:(tW-1/sF)+timeStamps(currentTv);   % Time vector used for drawing graphics
-    currentTv = currentTv - 1 + tWs;                                   % Updated everytime tV is updated
+    timeStamps = (0:tWs-1)/sF;
+    currentTv = 1;
+    tV = timeStamps(currentTv):1/sF:(tW-1/sF)+timeStamps(currentTv);
+    currentTv = currentTv - 1 + tWs;
     acquireEvent.TimeStamps = tV';
     
     if rampStatus
-        % Update ramp params for this exercise
         handles.RampMin = rampParams{1};
         handles.currentRampMax = rampParams{2}(ex);
     end
     
     disp(['Start ex: ' num2str(ex) ])
     
-    % Warning to the user
     fileName = ['Img/' char(mov(ex)) '.jpg'];
     if ~exist(fileName,'file')
-        fileName = ['Img/' 'noImage' '.png'];%'Img/relax.jpg';
+        fileName = ['Img/' 'noImage' '.png'];
     end
     
-    movI = importdata(fileName);                                       % Import Image
-    set(handles.a_pic,'Visible','on');                                 % Turn on visibility
-    pic = image(movI,'Parent',handles.a_pic);                          % set image
-    axis(handles.a_pic,'off');                                         % Remove axis tick marks
+    movI = importdata(fileName);
+    set(handles.a_pic,'Visible','on');
+    pic = image(movI,'Parent',handles.a_pic);
+    axis(handles.a_pic,'off');
     
-    % Show warning to prepare
-    set(handles.t_msg,'String',['Get ready for ' mov(ex) ' in 3 s']);
-    pause(1);
-    set(handles.t_msg,'String',['Get ready for ' mov(ex) ' in 2 s']);
-    pause(1);
-    set(handles.t_msg,'String',['Get ready for ' mov(ex) ' in 1 s']);
-    pause(1);
+    set(handles.t_msg,'String',['Get ready for ' mov(ex) ' in 3 s']); pause(1);
+    set(handles.t_msg,'String',['Get ready for ' mov(ex) ' in 2 s']); pause(1);
+    set(handles.t_msg,'String',['Get ready for ' mov(ex) ' in 1 s']); pause(1);
     
     % Dummy Contraction
     set(handles.t_msg,'String',mov(ex));
@@ -456,21 +280,22 @@ while ex <= nM
         if trainWithVr
             fwrite(handles.vreCommunication,sprintf(sprintf('%c%c%c%c%c','r',char(1),char(1),char(1),char(1))));
         end
-        pic = image(relax,'Parent',handles.a_pic);                     % set image
-        axis(handles.a_pic,'off');                                     % Remove axis tick marks
+        pic = image(relax,'Parent',handles.a_pic);
+        axis(handles.a_pic,'off');
         pause(rT);
     end
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
     %% Draw figure
+    if isvalid(handles.a_f0)
+        p_f0 = plot(handles.a_f0, timeStamps, fData);
+        handles.p_f0 = p_f0;
+        xlim(handles.a_f0, [0,sF/2]);
+        ylim(handles.a_f0, [ymin ymax]);
+        set(handles.a_f0,'YTick',offVector);
+        set(handles.a_f0,'YTickLabel',0:nCh-1);
+    end
     
-    p_f0 = plot(handles.a_f0, timeStamps, fData);
-    handles.p_f0 = p_f0;
-    xlim(handles.a_f0, [0,sF/2]);
-    ylim(handles.a_f0, [ymin ymax]);
-    set(handles.a_f0,'YTick',offVector);
-    set(handles.a_f0,'YTickLabel',0:nCh-1);
-    
-    if strcmp(handles.plotType,'Raw Signal')
+    if strcmp(handles.plotType,'Raw Signal') && isvalid(handles.a_t0)
         p_t0 = plot(handles.a_t0, timeStamps, sData);
         handles.p_t0 = p_t0;
         xlim(handles.a_t0, [0,tW]);
@@ -479,27 +304,19 @@ while ex <= nM
         set(handles.a_t0,'YTickLabel',0:nCh-1);
     end
     
-    if strcmp(handles.plotType,'Bar Chart')
+    if strcmp(handles.plotType,'Bar Chart') && isvalid(handles.a_t0)
         fID=handles.featureType;
         features = ExtractSigFeatureOnline(sData,sF,fID);
         p_t0 = bar(handles.a_t0, features);
-        
         handles.p_t0 = p_t0;
         set(handles.a_t0,'YTick',offVector);
         set(handles.a_t0,'YTickLabel',0:nCh-1);
-        
     end
-    
-    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
     %% Repetitions
-    %%%%% NI DAQ card %%%%%
     if strcmp (ComPortType, 'NI')
-        
-        % Init SBI
         sCh = 1:nCh;
-        
         if strcmp(deviceName, 'Thalmic MyoBand')
-            %CK: init MyoBand
             originFolder = pwd;
             changeFolderToMyoDLL();
             pause (0.5);
@@ -508,19 +325,17 @@ while ex <= nM
         else
             s = InitSBI_NI(sF,sTall,sCh);
         end
-        s.NotifyWhenDataAvailableExceeds = tWs;                        % PEEK time
+        s.NotifyWhenDataAvailableExceeds = tWs;
         lh = s.addlistener('DataAvailable', @RecordingSession_ShowData);
         
-        % Start DAQ
         cData = zeros(sF*sTall, nCh, nM);
-        s.startBackground();                                           % Run in the backgroud
+        s.startBackground();
         
         for rep = 1 : nR
             handles.rep = rep;
-            % Contraction
             set(handles.t_msg,'String',mov(ex));
-            pic = image(movI,'Parent',handles.a_pic);                  % set image
-            axis(handles.a_pic,'off');                                 % Remove axis tick marks
+            pic = image(movI,'Parent',handles.a_pic);
+            axis(handles.a_pic,'off');
             handles.contraction = 1;
             startContractionTic = tic;
             if trainWithVr
@@ -537,7 +352,6 @@ while ex <= nM
                 end
             end
             pause(cT - toc(startContractionTic));
-            % Relax
             set(handles.t_msg,'String','Relax');
             startRelaxingTic = tic;
             if trainWithVr
@@ -545,21 +359,16 @@ while ex <= nM
                     fwrite(handles.vreCommunication,sprintf(sprintf('%c%c%c%c%c',char(1),char(14),char(1),char(distance/numJumps),char(1))));
                 end
             end
-            pic = image(relax,'Parent',handles.a_pic);                 % set image
-            axis(handles.a_pic,'off');                                 % Remove axis tick marks
+            pic = image(relax,'Parent',handles.a_pic);
+            axis(handles.a_pic,'off');
             handles.contraction = 0;
             pause(rT - toc(startRelaxingTic));
         end
-        
-        % Repetitions other devices
     else
-        
-        % Connect to AcceleGlove, and start acquisition
         if useAcceleGlove
             acceleGlove = AcceleGlove(ag_port);
             if acceleGlove.status == acceleGlove.SUCCESS
                 acceleGlove.start_acquisition();
-                
                 if acceleGlove.status == acceleGlove.ERROR
                     useAcceleGlove = 0;
                     fprintf('Unable to start AcceleGlove acquisition\n');
@@ -570,55 +379,26 @@ while ex <= nM
             end
         end
         
-        % Connect the chosen device, it returns the connection object
-        obj = ConnectDevice(handles);
-        
-        % Set the selected device and Start the acquisition
-        handles.lmRecordedSamples = [];
-        if isa(obj,'LimbMATE_BioPatRec')
-            allData = zeros(round(sF*sTall),nCh,'single');
-            handles.lmRecordedSamples = 0;
-        end
-        SetDeviceStartAcquisition(handles, obj);
+        % --- ADAPTER PATTERN ---
+        dev = afeSettings.adapter;
         
         for rep = 1 : nR
-            
             rep
             handles.rep = rep;
-            handles.contraction = 1;                                   % 1 means contraction, 0 means relaxation
-            samplesCounter = 1;                                        % variable used to track the progressing time of the recording session
+            handles.contraction = 1;
+            samplesCounter = 1;
             UpdateGUI = 1;
             cData = zeros(tWs, nCh);
             
             tic
             for timeWindowNr = 1:sT/tW
-                
                 if useAcceleGlove
                     acceleGlove.update();
                 end
 
-                if isOTB400(deviceName) || isSQplus(deviceName)
-                    cData = obj.getEMG_data_TW_float(tWs);
-                    error = 0;
-                else
-                    [cData, error] = Acquire_tWs(deviceName, obj, nCh, tWs, compressData);    % acquire a new time window of samples
-                end
-
-                if error
-                    % Failed reads must not enter the recording or plots.
-                    if isa(obj,'LimbMATE_BioPatRec')
-                        obj.finishRecording(false);
-                        fprintf('Partial recording preserved in %s\n',obj.recoveryPath);
-                    end
-                    StopAcquisition(deviceName,obj);
-                    errordlg('Acquisition stopped: invalid or incomplete data. Partial LM data are in LimbMATE_Recovery.','Acquisition error');
-                    cdata = [];
-                    return;
-                end
+                cData = dev.read(tWs);
                 acquireEvent.Data = cData;
             
-                % Wait up to 100ms for data from AcceleGlove, if timeout
-                % occurs, cancel accelerometer recording.
                 if useAcceleGlove
                     tmp_data = acceleGlove.wait_for_data(0.1);
                     if isempty(tmp_data)
@@ -629,19 +409,16 @@ while ex <= nM
                     end
                 end
 
-                RecordingSession_ShowData(0, acquireEvent);            % plot data and add cData to allData vector
+                RecordingSession_ShowData(0, acquireEvent);
                 
                 samplesCounter = samplesCounter + tWs;
                 switch handles.contraction
                     case 1
-                        % CONTRACTION
                         if (samplesCounter/sF) <= cT
-                            % contraction time not expired yet
                             if UpdateGUI == 1
-                                % new contraction, the GUI must be updated
                                 set(handles.t_msg,'String',mov(ex));
-                                pic = image(movI,'Parent',handles.a_pic);    % set image
-                                axis(handles.a_pic,'off');                   % Remove axis tick marks
+                                pic = image(movI,'Parent',handles.a_pic);
+                                axis(handles.a_pic,'off');
                                 drawnow;
                                 if trainWithVr
                                     numberOfMovements = length(vreMovements{ex});
@@ -659,20 +436,16 @@ while ex <= nM
                                 UpdateGUI = 0;
                             end
                         else
-                            % contraction time expired
-                            handles.contraction = 0;                    % 1 means contraction, 0 means relaxation
+                            handles.contraction = 0;
                             UpdateGUI = 1;
                             samplesCounter = 1;
                         end
                     case 0
-                        % RELAXATION
                         if (samplesCounter/sF) <= rT
-                            % relaxation time not expired yet
                             if UpdateGUI == 1
-                                % new relaxation, the GUI must be updated
                                 set(handles.t_msg,'String','Relax');
-                                pic = image(relax,'Parent',handles.a_pic);   % set image
-                                axis(handles.a_pic,'off');                   % Remove axis tick marks
+                                pic = image(relax,'Parent',handles.a_pic);
+                                axis(handles.a_pic,'off');
                                 drawnow;
                                 if trainWithVr
                                     for i = 1:numJumps
@@ -682,8 +455,7 @@ while ex <= nM
                                 UpdateGUI = 0;
                             end
                         else
-                            % relaxation time expired
-                            handles.contraction = 1;                % 1 means contraction, 0 means relaxation
+                            handles.contraction = 1;
                             if rep ~= nR
                                 UpdateGUI = 1;
                             end
@@ -696,35 +468,21 @@ while ex <= nM
             toc
         end
         
-        movementIntegrity = [];
-        if isa(obj,'LimbMATE_BioPatRec')
-            obj.finishRecording(true);
-            movementIntegrity = obj.getRecordingIntegrity();
-            if movementIntegrity.replacedSamples > 0
-                warndlg(sprintf('LimbMATE: %d samples replaced. Repeat this movement if needed. Details are saved with the recording.', ...
-                    movementIntegrity.replacedSamples),'Recording quality');
-            end
-        end
         % Stop acquisition
-        StopAcquisition(deviceName, obj);
+        dev.stop();
         if useAcceleGlove
             acceleGlove.stop_acquisition();
         end
     end
     
-    % NI DAQ card: "You must delete the listener once the operation is complete"
-    if strcmp(ComPortType,'NI');
+    if strcmp(ComPortType,'NI')
         error = 0;
-        if ~s.IsDone                                                   % check if is done
+        if ~s.IsDone
             s.wait();
         end
-        
-        %CK: Since variable lh is not used in the MyoBandSession, we cannot
-        %delete it this way. But for any other device lh will be deleted.
         if ~strcmp(deviceName, 'Thalmic MyoBand')
             delete(lh);
         end
-        %CK: Stop sampling from MyoBand
         if strcmp(deviceName, 'Thalmic MyoBand')
              MyoClient('StopSampling');
         end
@@ -734,8 +492,9 @@ while ex <= nM
         errordlg('Error occurred during the acquisition!','Error');
         return
     else
-        % Plot movement just recorded
-        DataShow(handles, allData, sF, sTall);
+        if isvalid(handles.a_t0)
+            DataShow(handles, allData, sF, sTall);
+        end
         
         if movRepeatDlg
             prompt = {'Do you want to record this movement again? (y/n)'};
@@ -743,84 +502,32 @@ while ex <= nM
             num_lines = 1;
             def = {'n'};
             answer = inputdlg(prompt,dlg_title,num_lines,def);
-            if strcmp(answer, 'n')
-                % Save and go ahead with the next movement..
+            if strcmp(answer{1}, 'n')
                 recSessionData(:,:,ex) = allData(:,:);
-                recordingIntegrity{ex} = movementIntegrity;
-                % Increase loop index
                 ex = ex + 1;
             end
         else
-            % Save and go ahead with the next movement..
             recSessionData(:,:,ex) = allData(:,:);
-            recordingIntegrity{ex} = movementIntegrity;
-            % Increase loop index
             ex = ex + 1;
         end
-        % Clean global data
         allData = [];
     end
-    
 end
-
 
 %% Session finish..
-
-% Save data into cdata output matrix
-if isLimbMATE(deviceName)
-    try
-        objLM.stopAcquisitionEMG();
-    catch
-        % If the acquisition already stopped on the board, ignore
-    end
-    objLM.closeRecording();
-    handles.objLM = [];
-end
-
-% Cleanup for OTB
-if isOTB400(deviceName)
-    if isfield(handles,'objOT') && ~isempty(handles.objOT)
-        try
-            handles.objOT.disconnectBTdevice();
-        catch ME
-            fprintf('OT cleanup warning: %s\n', ME.message);
-        end
-        handles.objOT = [];
-    end
-end
-
-% Cleanup for Sessantaquattro+
-if isSQplus(deviceName)
-    if isfield(handles,'objSQ') && ~isempty(handles.objSQ)
-        try
-            handles.objSQ.disconnectBTdevice();
-        catch ME
-            fprintf('SQ cleanup warning: %s\n', ME.message);
-        end
-        handles.objSQ = [];
-    end
-end
-
-% Save data into cdata output matrix
 cdata = recSessionData(:,:,:);
-if any(~cellfun(@isempty,recordingIntegrity))
-    sensorData.recordingIntegrity = recordingIntegrity;
-end
 
-if saveRec                                                             % Saved in DataAnalysis
-    
-    set(handles.t_msg,'String','Session Terminated');                  % Show message about acquisition completed
+if saveRec
+    if isvalid(handles.t_msg), set(handles.t_msg,'String','Session Terminated'); end
     fileName = 'Img/Agree.jpg';
-    movI = importdata(fileName);                                       % Import Image
-    set(handles.a_pic,'Visible','on');                                 % Turn on visibility
-    pic = image(movI,'Parent',handles.a_pic);                          % set image
-    axis(handles.a_pic,'off');                                         % Remove axis tick marks
-    
-    % Save Session to file
-    recSession.sF       = sF;
-    if any(~cellfun(@isempty,recordingIntegrity))
-        recSession.recordingIntegrity = recordingIntegrity;
+    movI = importdata(fileName);
+    if isvalid(handles.a_pic)
+        set(handles.a_pic,'Visible','on');
+        pic = image(movI,'Parent',handles.a_pic);
+        axis(handles.a_pic,'off');
     end
+    
+    recSession.sF       = sF;
     recSession.sT       = sTall;
     recSession.cT       = cT;
     recSession.rT       = rT;
@@ -833,7 +540,7 @@ if saveRec                                                             % Saved i
     recSession.dev      = deviceName;
     recSession.comm     = ComPortType;
     if strcmp(ComPortType, 'COM')
-        recSession.comn     = ComPortName;
+        recSession.comn = ComPortName;
     end
     recSession.useAcceleGlove = useAcceleGlove;
     if useAcceleGlove
@@ -844,11 +551,11 @@ if saveRec                                                             % Saved i
     recSession.date     = fix(clock);
     recSession.cmt      = inputdlg('Additional comment on the recording session','Comments');
     if rampStatus
-        recSession.ramp.rampMin = rampParams{1};                 % Save the ramp parameters to the file
+        recSession.ramp.rampMin = rampParams{1};
         recSession.ramp.rampMax = rampParams{2};
         recSession.ramp.minData = rampParams{3};
         recSession.ramp.maxData = rampParams{4};
-        recSession.ramp.rampFeature = 'tmabs';              % what is being used in ramp training - mean absolute value. hard coded, may be editable later
+        recSession.ramp.rampFeature = 'tmabs';
     end
     
     [filename, pathname] = uiputfile({'*.mat','MAT-files (*.mat)'},'Save as', 'Untitled.mat');
@@ -859,42 +566,43 @@ if saveRec                                                             % Saved i
         disp(['User selected ', fullfile(pathname, filename)])
         recSession.tdata = recSessionData;
         save([pathname,filename],'recSession');
-        disp(recSession);
     end
     
     if trainWithVr
         fclose(handles.vreCommunication);
     end
     
-    % Turn OFF visibility
-    set(handles.a_prog,'visible','off');
-    if(rampStatus)
+    if isvalid(handles.a_prog), set(handles.a_prog,'visible','off'); end
+    if rampStatus && isvalid(handles.a_effortPlot)
         set(handles.a_effortPlot,'visible','off');
         set(handles.txt_effortPlot,'visible','off');
-        set(p_effortPlot,'visible','off');
-        set(handles.hLine,'visible','off');
+        if isvalid(p_effortPlot), set(p_effortPlot,'visible','off'); end
+        if isvalid(handles.hLine), set(handles.hLine,'visible','off'); end
     end
-    set(handles.hPatch,'Xdata',[0 0 0 0]);
+    if isfield(handles,'hPatch') && isvalid(handles.hPatch)
+        set(handles.hPatch,'Xdata',[0 0 0 0]);
+    end
     
-    % Set visible the offline plot and process panels
-    set(handles.uipanel9,'Visible','on');
-    set(handles.uipanel10,'Visible','on');
-    set(handles.uibuttongroup1,'Visible','on');
-    set(handles.uipanel7,'Visible','on');
-    set(handles.uipanel8,'Visible','on');
-    set(handles.txt_it,'visible','on');
-    set(handles.txt_ft,'visible','on');
-    set(handles.et_it,'visible','on');
-    set(handles.et_ft,'visible','on');
-    set(handles.txt_if,'visible','on');
-    set(handles.txt_ff,'visible','on');
-    set(handles.et_if,'visible','on');
-    set(handles.et_ff,'visible','on');
+    if isvalid(handles.uipanel9), set(handles.uipanel9,'Visible','on'); end
+    if isvalid(handles.uipanel10), set(handles.uipanel10,'Visible','on'); end
+    if isvalid(handles.uibuttongroup1), set(handles.uibuttongroup1,'Visible','on'); end
+    if isvalid(handles.uipanel7), set(handles.uipanel7,'Visible','on'); end
+    if isvalid(handles.uipanel8), set(handles.uipanel8,'Visible','on'); end
     
-    chVector = 0:nCh-1;
-    set(handles.lb_channels, 'String', chVector);
+    if isvalid(handles.txt_it), set(handles.txt_it,'visible','on'); end
+    if isvalid(handles.txt_ft), set(handles.txt_ft,'visible','on'); end
+    if isvalid(handles.et_it), set(handles.et_it,'visible','on'); end
+    if isvalid(handles.et_ft), set(handles.et_ft,'visible','on'); end
+    if isvalid(handles.txt_if), set(handles.txt_if,'visible','on'); end
+    if isvalid(handles.txt_ff), set(handles.txt_ff,'visible','on'); end
+    if isvalid(handles.et_if), set(handles.et_if,'visible','on'); end
+    if isvalid(handles.et_ff), set(handles.et_ff,'visible','on'); end
     
-    %GUI_DataAnalysis(recSession,varargin);
+    if isvalid(handles.lb_channels)
+        chVector = 0:nCh-1;
+        set(handles.lb_channels, 'String', chVector);
+    end
+    
     dlgTitle    = 'Analyze Data';
     dlgQuestion = 'Would you like to analyze and correct this recording session';
     choice = questdlg(dlgQuestion,dlgTitle,'Yes','No', 'Yes');

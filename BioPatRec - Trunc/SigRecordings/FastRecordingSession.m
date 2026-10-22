@@ -6,36 +6,8 @@
 % BioPatRec was initially developed by Max J. Ortiz C. at Integrum AB and 
 % Chalmers University of Technology. All authors’ contributions must be kept
 % acknowledged below in the section "Updates % Contributors". 
-%
-% Would you like to contribute to science and sum efforts to improve 
-% amputees’ quality of life? Join this project! or, send your comments to:
-% maxo@chalmers.se.
-%
-% The entire copyright notice must be kept in this or any source file 
-% linked to BioPatRec. This will ensure communication with all authors and
-% acknowledge contributions here and in the project web page (optional).
 % ------------------- Function Description ------------------
-% Function to Record Exc Sessions
-%
-% --------------------------Updates--------------------------
-% 2015-01-26 / Enzo Mastinu / A new GUI_Recordings has been developed for the
-                            % BioPatRec_TRE release. Now it is possible to
-                            % plot more then 8 channels at the same moment, for 
-                            % time and frequency plots both. It is faster and
-                            % perfectly compatible with the ramp recording 
-                            % session. At the end of the recording session it 
-                            % is possible to check all channels individually, 
-                            % apply offline data process as feature extraction or filter etc.
-% 2015-10-28 / Martin Holder / >2014b plot interface fixes
-
-% 2017-09-25 / Simon Nilsson  / Added warning dialog if acquisition error occurs
-
-% 2018-07-09 / Andreas Eiler / Added function to change current folder to load
-                            % Myo.dll file correctly
-
-% 2018-09-26 / Adam naber / Added sensorData field for additional sensors
-
-% 2019-03-06 / Bahareh Ahkami / Bar plot added to the system
+% Function to Record Exc Sessions (Fast Mode)
 
 function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
 
@@ -45,11 +17,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     global       samplesCounter;
     allData      = [];
     handles      = varargin{1};
-    handles.lmRecordedSamples = [];
     afeSettings  = varargin{2};
-
-    % Refresh the HD grid, or remove it when switching to another device.
-    handles.OTBRecordingMap = OTB400_OpenRecordingMap(afeSettings, handles);
 
     % Get required informations from afeSettings structure
     nCh          = afeSettings.channels;
@@ -61,10 +29,13 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     else
         compressData = 0;
     end
-    if strcmp(ComPortType, 'COM')
-        ComPortName = afeSettings.ComPortName;  
-    end
-    
+        if strcmp(ComPortType, 'COM')
+        if isfield(afeSettings, 'ComPortName')
+            ComPortName = afeSettings.ComPortName;
+        else
+            ComPortName = 'COM4'; % Fallback if missing
+        end
+    end    
     % Save back acquisition parameters to the handles
     if isfield(afeSettings,'vChannels')
         handles.vCh     = afeSettings.vChannels;
@@ -86,8 +57,18 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     handles.featureType = afeSettings.featureType;
     handles.plotType    = afeSettings.plotType;
     
+    % STRICT FAIL-SAFE: Never let these devices use NI DAQ
+    if isSQplus(deviceName) || isLimbMATE(deviceName) || isOTB400(deviceName)
+        ComPortType = 'COM';
+        handles.ComPortType = 'COM';
+    end
+    
     % Setting for data peeking
-    sT            = handles.sT;
+    if isfield(afeSettings, 'sT') && ~isempty(afeSettings.sT)
+        sT = afeSettings.sT;
+    else
+        sT = handles.sT;
+    end
     handles.sT    = sT;
     handles.sTall = sT;
 
@@ -95,15 +76,15 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         tWs = 256;
         tW = tWs / sF;
     elseif isSQplus(deviceName)
-        tWs = 200;   % 200 ms at 1000 Hz
+        tWs = 200;
         tW = tWs / sF;
     else
         tW = handles.tW;
         tWs = round(tW*sF);
     end
 
-    handles.tWs = tWs; % Time window samples
-    timeStamps = (0:tWs-1)/sF;          % Create vector of time
+    handles.tWs = tWs;
+    timeStamps = (0:tWs-1)/sF;
     
     if mod(sT,tW) > 0
         errordlg('Please, the time window size must be a multiple of the recording time. Select a proper time window size!')
@@ -111,10 +92,8 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     end
     
     %% Initialize GUI..
-
     pause on;
     
-    % Initialize plots, offset the data
     ampPP = 5;
     sData = zeros(tWs,nCh);   
     fData = zeros(tWs,nCh);
@@ -125,40 +104,40 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         fData(:,i) = fData(:,i) + offVector(i);
     end
     
-    % Draw figure
-    ymin = -ampPP*2/3;
-    ymax =  ampPP * nCh - ampPP*1/3;
-    p_t0 = plot(handles.a_t0, timeStamps, sData);
-    handles.p_t0 = p_t0;
-    xlim(handles.a_t0, [timeStamps(1) timeStamps(end)]);
-    set(handles.a_t0,'XTick',0:numel(timeStamps)-1);
-    set(handles.a_t0,'XTickLabel',timeStamps);
-    ylim(handles.a_t0, [ymin ymax]);
-    set(handles.a_t0,'YTick',offVector);
-    set(handles.a_t0,'YTickLabel',0:nCh-1);
-    p_f0 = plot(handles.a_f0,timeStamps,fData);
-    handles.p_f0 = p_f0;  
-    xlim(handles.a_f0, [0,sF/2]);
-    ylim(handles.a_f0, [ymin ymax]);
-    set(handles.a_f0,'YTick',offVector);
-    set(handles.a_f0,'YTickLabel',0:nCh-1);
-    
-    % Initialization of progress bar
-    xpatch = [0 0 0 0];
-    ypatch = [0 0 1 1];
-    axes(handles.a_prog);
-    axis(handles.a_prog,'off');
-    set(handles.a_prog, 'XLim',[0 1], 'YLim',[0 1], 'XLimMode','manual', 'YLimMode','manual');
-    handles.hPatch = patch( ...
-    'Parent', handles.a_prog, ...
-    'XData', xpatch, ...
-    'YData', ypatch, ...
-    'FaceColor', 'b', ...
-    'EdgeColor', 'b', ...
-    'Visible', 'on');
-    drawnow update % 2014b figure updates
+    % Draw figure (only if the GUI is still open)
+    if isvalid(handles.a_t0)
+        ymin = -ampPP*2/3;
+        ymax =  ampPP * nCh - ampPP*1/3;
+        p_t0 = plot(handles.a_t0, timeStamps, sData);
+        handles.p_t0 = p_t0;
+        xlim(handles.a_t0, [timeStamps(1) timeStamps(end)]);
+        set(handles.a_t0,'XTick',0:numel(timeStamps)-1);
+        set(handles.a_t0,'XTickLabel',timeStamps);
+        ylim(handles.a_t0, [ymin ymax]);
+        set(handles.a_t0,'YTick',offVector);
+        set(handles.a_t0,'YTickLabel',0:nCh-1);
+        p_f0 = plot(handles.a_f0,timeStamps,fData);
+        handles.p_f0 = p_f0;  
+        xlim(handles.a_f0, [0,sF/2]);
+        ylim(handles.a_f0, [ymin ymax]);
+        set(handles.a_f0,'YTick',offVector);
+        set(handles.a_f0,'YTickLabel',0:nCh-1);
+        
+        xpatch = [0 0 0 0];
+        ypatch = [0 0 1 1];
+        axes(handles.a_prog);
+        axis(handles.a_prog,'off');
+        set(handles.a_prog, 'XLim',[0 1], 'YLim',[0 1], 'XLimMode','manual', 'YLimMode','manual');
+        handles.hPatch = patch( ...
+        'Parent', handles.a_prog, ...
+        'XData', xpatch, ...
+        'YData', ypatch, ...
+        'FaceColor', 'b', ...
+        'EdgeColor', 'b', ...
+        'Visible', 'on');
+        drawnow update
+    end
 
-    % Allocation of resource to improve speed, total data 
     recSessionData = zeros(sF*sT, nCh);
     if isfield(afeSettings,'useAcceleGlove') && afeSettings.useAcceleGlove == 1
         useAcceleGlove = 1;
@@ -169,26 +148,19 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         sensorData.accelerometers = [];
     end
 
-
     %% Starting Session..
-    
-    % Warning to the user
-    set(handles.t_msg,'String','start');
+    if isvalid(handles.t_msg), set(handles.t_msg,'String','start'); end
     drawnow;
 
-    % Run 
-    currentTv = 1;                                                     % Current time vector
-    tV = timeStamps(currentTv):1/sF:(tW-1/sF)+timeStamps(currentTv);   % Time vector used for drawing graphics
-    currentTv = currentTv - 1 + tWs;                                   % Updated everytime tV is updated
+    currentTv = 1;
+    tV = timeStamps(currentTv):1/sF:(tW-1/sF)+timeStamps(currentTv);
+    currentTv = currentTv - 1 + tWs;
     acquireEvent.TimeStamps = tV';
 
     %%%%% NI DAQ card %%%%%
     if strcmp (ComPortType, 'NI')
-
-        % Init SBI
         sCh = 1:nCh;
         if strcmp(deviceName, 'Thalmic MyoBand')
-            %CK: init MyoBand
             originFolder = pwd;
             changeFolderToMyoDLL();
             pause (0.5);
@@ -197,25 +169,20 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         else
             s = InitSBI_NI(sF,sT,sCh);
         end
-        s.NotifyWhenDataAvailableExceeds = tWs;                        % PEEK time
+        s.NotifyWhenDataAvailableExceeds = tWs;
         lh = s.addlistener('DataAvailable', @RecordingSession_ShowData);   
 
-        % Start DAQ
         cdata = zeros(sF*sT, nCh);
-        s.startBackground();                                           % Run in the backgroud
+        s.startBackground();
 
         startTimerTic = tic;
         pause(sT - toc(startTimerTic));
 
-    % Repetitions other devices     
     else
-        
-        % Connect to AcceleGlove, and start acquisition
         if useAcceleGlove
             acceleGlove = AcceleGlove(ag_port);
             if acceleGlove.status == acceleGlove.SUCCESS
                 acceleGlove.start_acquisition();
-                
                 if acceleGlove.status == acceleGlove.ERROR
                     useAcceleGlove = 0;
                     fprintf('Unable to start AcceleGlove acquisition\n');
@@ -226,64 +193,10 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
             end
         end
 
-        %% Start the connection with Limb-MATE
-        if isLimbMATE(deviceName)
-            objLM = GetRecordingLimbMATE(afeSettings, ComPortName);
-            lmCleanup = onCleanup(@() objLM.closeRecording());
-
-            % Store on handles for later cleanup
-            handles.objLM = objLM;
-        end
-
-        %% Start the connection with OTB (OT Bioelettronica EMG-USB2+)
-        if isOTB400(deviceName)
-            % Reuse the connection passed from the AFE window
-            if isfield(afeSettings, 'objOT') && ~isempty(afeSettings.objOT)
-                fprintf('Reusing existing OTB400 connection\n');
-                objOT = afeSettings.objOT;
-            else
-                fprintf('Creating new OTB400 connection\n');
-                otDuration = max(60, handles.sT + 10);
-                if contains(deviceName, 'HD')
-                    electrodeConfig = afeSettings.OTB400Electrodes;
-                    objOT = OT_Acquire('hd', nCh, otDuration, electrodeConfig);
-                else
-                    objOT = OT_Acquire('bipolar', nCh, otDuration);
-                end
-            end
-            handles.objOT = objOT;
-            otCleanup = onCleanup(@() objOT.disconnectBTdevice());
-        end
-
-        %% Start the connection with Sessantaquattro+ (TCP)
-        if isSQplus(deviceName)
-            sqDuration = max(60, handles.sT + 10);
-            objSQ = Sessantaquattro_Acquire(handles.nCh, sqDuration, 45454);
-            handles.objSQ = objSQ;
-            sqCleanup = onCleanup(@() objSQ.disconnectBTdevice());
-        end
-
-        % Connect the chosen device, it returns the connection object
-        obj = ConnectDevice(handles);
-        if ~(isLimbMATE(deviceName) || isOTB400(deviceName) || isSQplus(deviceName))
-            if strcmp(get(obj,'Status'),'closed')   % Make sure port opened correctly
-                return;
-            end
-        end
+        % --- ADAPTER PATTERN ---
+        dev = afeSettings.adapter;
+        dev.start(afeSettings);
         
-        % Set the selected device and Start the acquisition
-        SetDeviceStartAcquisition(handles, obj);
-        if ~(isLimbMATE(deviceName) || isOTB400(deviceName) || isSQplus(deviceName))
-            if strcmp(get(obj,'Status'),'closed')   % StartAcquisition closes the port on failure
-                return;
-            end
-        end
-        
-        handles.lmRecordedSamples = [];
-        if isa(obj,'LimbMATE_BioPatRec')
-            allData = zeros(round(sF*sT),nCh,'single');
-            handles.lmRecordedSamples = 0;
-        end
         samplesCounter = 0;
 
         tic
@@ -292,35 +205,9 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
                 acceleGlove.update();
             end
             
-            if isOTB400(deviceName) || isSQplus(deviceName)
-            
-                % Read data directly from the wrapper class
-                cdata = obj.getEMG_data_TW_float(tWs);
-            
-                acquisitionError = 0;
-            
-            else
-            
-                % Other devices
-                [cdata, acquisitionError] = Acquire_tWs( ...
-                    deviceName, obj, nCh, tWs, compressData);
-            
-            end
-            
-            if acquisitionError == 1
-            
-                if isa(obj,'LimbMATE_BioPatRec'), obj.finishRecording(false); end
-                StopAcquisition(deviceName,obj);
-                cdata = [];
-                errordlg('Acquisition stopped. Partial LM data are in LimbMATE_Recovery.', 'Error');
-                return;
-            
-            end
-
+            cdata = dev.read(tWs);
             acquireEvent.Data = cdata;
             
-            % Wait up to 100ms for data from AcceleGlove, if timeout
-            % occurs, cancel accelerometer recording.
             if useAcceleGlove
                 tmp_data = acceleGlove.wait_for_data(0.1);
                 if isempty(tmp_data)
@@ -332,110 +219,62 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
             end
             
             samplesCounter = samplesCounter + size(cdata,1);
-            RecordingSession_ShowData(0, acquireEvent);            % plot data and add cData to allData vector
-%             samplesCounter = samplesCounter + tWs;
+            RecordingSession_ShowData(0, acquireEvent);
         end
         toc
 
-        if isa(obj,'LimbMATE_BioPatRec')
-            obj.finishRecording(true);
-            sensorData.recordingIntegrity = obj.getRecordingIntegrity();
-            if sensorData.recordingIntegrity.replacedSamples > 0
-                warndlg(sprintf('LimbMATE: %d samples replaced. Details are saved with the recording.', ...
-                    sensorData.recordingIntegrity.replacedSamples),'Recording quality');
-            end
-        end
-        % Stop acquisition
-        StopAcquisition(deviceName, obj); 
+        % Stop acquisition (leaves TCP socket open for SQ+)
+        dev.stop();
         if useAcceleGlove
             acceleGlove.stop_acquisition();
         end
-        
     end
 
     % NI DAQ card: "You must delete the listener once the operation is complete"
     if strcmp(ComPortType,'NI')  
-        if ~s.IsDone                                                   % check if is done
+        if ~s.IsDone
             s.wait();
         end
         if ~strcmp(deviceName, 'Thalmic MyoBand')
             delete(lh);
         end
-        %CK: Stop sampling from MyoBand
         if strcmp(deviceName, 'Thalmic MyoBand')
-%             s.stop(); 
             MyoClient('StopSampling');
         end
     end
 
-    % Save data into cdata output matrix
-    if isLimbMATE(deviceName)
-        if isfield(handles,'objLM') && ~isempty(handles.objLM)
-            try
-                handles.objLM.closeRecording();
-            catch ME
-                fprintf('Cleanup warning: %s\n', ME.message);
-            end
-            handles.objLM = [];
-        end
-    end
-
-    % Cleanup for OTB
-    if isOTB400(deviceName)
-        if isfield(handles,'objOT') && ~isempty(handles.objOT)
-            try
-                handles.objOT.disconnectBTdevice();
-            catch ME
-                fprintf('OT cleanup warning: %s\n', ME.message);
-            end
-            handles.objOT = [];
-        end
-    end
-
-    % Cleanup for Sessantaquattro+
-    if isSQplus(deviceName)
-        if isfield(handles,'objSQ') && ~isempty(handles.objSQ)
-            try
-                handles.objSQ.disconnectBTdevice();
-            catch ME
-                fprintf('SQ cleanup warning: %s\n', ME.message);
-            end
-            handles.objSQ = [];
-        end
-    end
-
-    % Save Data
     cdata = allData;
-    allData = [];                                                      % clean global data for next movement
+    allData = [];                                                      
     
     %% Session finish..
-    set(handles.t_msg,'String','Session Terminated');                  % Show message about acquisition completed     
+    if isvalid(handles.t_msg)
+        set(handles.t_msg,'String','Session Terminated');
+    end
     fileName = 'Img/Agree.jpg';
-    movI = importdata(fileName);                                       % Import Image
-    set(handles.a_pic,'Visible','on');                                 % Turn on visibility
-    image(movI,'Parent',handles.a_pic);                          % set image
-    axis(handles.a_pic,'off');                                         % Remove axis tick marks
-    set(handles.a_prog,'visible','off');
-    set(handles.hPatch,'Xdata',[0 0 0 0]);
+    movI = importdata(fileName);
+    if isvalid(handles.a_pic)
+        set(handles.a_pic,'Visible','on');
+        image(movI,'Parent',handles.a_pic);
+        axis(handles.a_pic,'off');
+    end
+    if isvalid(handles.a_prog), set(handles.a_prog,'visible','off'); end
+    if isfield(handles,'hPatch') && isvalid(handles.hPatch)
+        set(handles.hPatch,'Xdata',[0 0 0 0]);
+    end
 
-    % Data Plot
-    DataShow(handles,cdata,sF,sT);
+    if ~isempty(cdata) && isvalid(handles.a_t0)
+        DataShow(handles,cdata,sF,sT);
+    end
     
     % Set visible the offline plot and process panels
-    set(handles.uipanel9,'Visible','on'); 
-    set(handles.uipanel10,'Visible','on');
-    set(handles.uibuttongroup1,'Visible','on');
-    set(handles.uipanel7,'Visible','on');
-    set(handles.uipanel8,'Visible','on');
-    set(handles.txt_it,'visible','on');
-    set(handles.txt_ft,'visible','on');
-    set(handles.et_it,'visible','on');
-    set(handles.et_ft,'visible','on');
-    set(handles.txt_if,'visible','on');
-    set(handles.txt_ff,'visible','on');
-    set(handles.et_if,'visible','on');
-    set(handles.et_ff,'visible','on');
+    if isvalid(handles.uipanel9), set(handles.uipanel9,'Visible','on'); end
+    if isvalid(handles.uipanel10), set(handles.uipanel10,'Visible','on'); end
+    if isvalid(handles.uibuttongroup1), set(handles.uibuttongroup1,'Visible','on'); end
+    if isvalid(handles.uipanel7), set(handles.uipanel7,'Visible','on'); end
+    if isvalid(handles.uipanel8), set(handles.uipanel8,'Visible','on'); end
     
     chVector = 0:nCh-1;
-    set(handles.lb_channels, 'String', chVector);
+    if isvalid(handles.lb_channels)
+        set(handles.lb_channels, 'String', chVector);
+    end
 end

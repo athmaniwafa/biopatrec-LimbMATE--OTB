@@ -48,8 +48,18 @@
 % 2016-04-20 / Julian Maier / changed filter cofficient to a,b instead of
                             % z,p,k --> faster
 
+ function [dataf] = ApplyButterFilter(Fs, N, Fc1, Fc2, data)
+    % If the Signal Processing Toolbox is missing, we cannot use butter/filtfilt.
+    % Instead, we simply remove the DC offset (the mean of each channel).
+    % This is a "Poor Man's" high-pass filter and will perfectly center the
+    % data at 0 so you can see the taps and muscle spikes.
 
-function [dataf] = ApplyButterFilter(Fs,N,Fc1,Fc2,data)
-
-[b,a]     = butter(N/2, [Fc1 Fc2]/(Fs/2));
-dataf     = filtfilt(b,a,data);
+    % Check if the Signal Processing Toolbox is available
+    if exist('butter', 'file')
+        [b,a] = butter(N/2, [Fc1 Fc2]/(Fs/2));
+        dataf = filtfilt(b,a,data);
+    else
+        % Fallback: subtract the mean of each column
+        dataf = data - repmat(mean(data), size(data,1), 1);
+    end
+end
