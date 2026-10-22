@@ -95,6 +95,24 @@ axis off
 % Choose default command line output for GUI_PatRec
 handles.output = hObject;
 
+% Add feature check button
+set(handles.pb_featureSelection,'Units','normalized');
+p = get(handles.pb_featureSelection,'Position');
+gap = 0.006;
+buttonWidth = (p(3)-gap)/2;
+
+set(handles.pb_featureSelection,'Position', ...
+    [p(1), p(2), buttonWidth, p(4)]);
+
+handles.pb_viewFeatures = uicontrol( ...
+    'Parent',get(handles.pb_featureSelection,'Parent'), ...
+    'Style','pushbutton', ...
+    'Units','normalized', ...
+    'Position',[p(1)+buttonWidth+gap, p(2), buttonWidth, p(4)], ...
+    'String','View features', ...
+    'Tag','pb_viewFeatures', ...
+    'Callback',@pb_viewFeatures_Callback);
+
 % Update handles structure
 guidata(hObject, handles);
 
@@ -111,6 +129,40 @@ function varargout = GUI_PatRec_OutputFcn(hObject, eventdata, handles)
 
 % Get default command line output from handles structure
 varargout{1} = handles.output;
+
+
+% --- Executes on button press in pb_viewFeatures.
+function pb_viewFeatures_Callback(hObject, eventdata)
+
+handles = guidata(hObject);
+sigFeatures = get(handles.t_sigFeatures,'UserData');
+
+if isempty(sigFeatures)
+    errordlg('Load or extract features first.','View features');
+    return;
+end
+
+names = get(handles.lb_features,'String');
+if ischar(names)
+    names = cellstr(names);
+end
+selection = get(handles.lb_features,'Value');
+
+if isempty(selection)
+    errordlg('Select at least one feature.','View features');
+    return;
+end
+
+set(handles.t_msg,'String','Preparing feature preview...');
+drawnow;
+
+try
+    GUI_PreviewFeatures(sigFeatures,names(selection));
+    set(handles.t_msg,'String','Feature preview ready.');
+catch ME
+    set(handles.t_msg,'String','Feature preview failed.');
+    errordlg(ME.message,'View features');
+end
 
 
 % --- Executes on button press in pb_GetFeatures.
