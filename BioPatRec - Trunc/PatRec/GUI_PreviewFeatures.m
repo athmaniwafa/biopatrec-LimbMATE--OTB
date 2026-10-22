@@ -90,7 +90,7 @@ set(ax, ...
 
 xlabel(ax, {'Movement'; 'Each block contains its training windows'});
 title(ax,{'Selected features: mean over channels', ...
-          'Curves scaled for display; dotted lines separate movements'});
+          'Curves scaled for display; lines separate movements'});
 grid(ax,'on');
 hold(ax,'off');
 
