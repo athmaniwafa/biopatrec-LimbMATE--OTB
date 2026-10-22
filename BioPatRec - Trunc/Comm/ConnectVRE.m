@@ -25,10 +25,20 @@
 % 2015-12-01 / Morten Bak Kristoffersen / Added arm/leg selection.
 
 function handles = ConnectVRE(handles, program)
+    if isfield(handles,'vre_Com') && strcmp(handles.vre_Com.Status,'closed')
+        handles = rmfield(handles,'vre_Com');
+    end
     if ~isfield(handles,'vre_Com')
-        open(program);
-        handles.vre_Com = tcpip('127.0.0.1',23068,'NetworkRole','server');
-        fopen(handles.vre_Com);
+        % Listen before launching the VRE so its first connection can succeed.
+        connection = VRETcpConnection(23068);
+        try
+            open(program);
+            fopen(connection);
+        catch ME
+            delete(connection);
+            rethrow(ME);
+        end
+        handles.vre_Com = connection;
     if ~isfield(handles, 'vre_leg') % Default is not using the leg
         fwrite(handles.vre_Com,sprintf('%c%c%c%c','c',char(1),char(1),char(1)));
         fread(handles.vre_Com,1);

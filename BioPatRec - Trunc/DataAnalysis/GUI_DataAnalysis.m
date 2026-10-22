@@ -264,13 +264,18 @@ function a_prediction_ButtonDownFcn(hObject, eventdata, handles)
 % hObject    handle to a_prediction (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
+if isempty(hObject.Children)
+    return;
+end
 figure;
 a = axes;
 copyobj(hObject.Children,a);
 axis(a,[hObject.XLim hObject.YLim]);
 xlabel(a,'Classification Complexity');
 ylabel(a,'Predicted Accuracy');
-legend(a.Children([5 2 1]),{'Measured Data' 'Line Fitted to Measured Data' 'Classification Complexity of the Selected Movement'});
+if numel(a.Children) >= 5
+    legend(a.Children([5 2 1]),{'Measured Data' 'Line Fitted to Measured Data' 'Classification Complexity of the Selected Movement'});
+end
 
 % --- Executes on selection change in lb_movements.
 function lb_movements_Callback(hObject, eventdata, handles)

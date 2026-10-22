@@ -185,7 +185,7 @@ function [cData, error] = Acquire_tWs(deviceName, obj, nCh, tWs, compressionEnab
            % Get the Data    
            [EMG_data_TW] = obj.getEMG_data_TW_float(tWs);
            
-           cData = EMG_data_TW';
+           cData = EMG_data_TW(1:nCh,:)';
        end
 
        %%%%% OTB (OT Bioelettronica EMG-USB2+) %%%%%

@@ -27,6 +27,8 @@ classdef OT_Acquire < handle
         listener
         stopped = false;
         started = false;
+        deviceOpen = false;
+        receivedSamples = 0;
     end
 
     methods
@@ -79,6 +81,7 @@ classdef OT_Acquire < handle
             % Open + initialise
             obj.dev.NewDataAvailableEventsPerSecond = 16;
             obj.dev.OpenDevice();
+            obj.deviceOpen = true;
             obj.dev.InitializeDevice();
 
             acquired = double(obj.dev.GetAcquiredChannels());
@@ -100,6 +103,27 @@ classdef OT_Acquire < handle
         function startAcquisitionEMG(obj, varargin)
             % varargin ignored -- BioPatRec passes LM-style arguments.
             if obj.started, return; end
+            % Each movement starts a fresh acquisition on the same device.
+            if obj.stopped || ~obj.deviceOpen
+                if obj.deviceOpen
+                    obj.dev.CloseDevice();
+                    obj.deviceOpen = false;
+                end
+                if strcmp(obj.mode, 'bipolar')
+                    [obj.dev, obj.config] = config_bipolar(obj.Nch);
+                else
+                    [obj.dev, obj.config] = config_hd(obj.Nch, obj.config.Electrodes);
+                end
+                obj.dev.NewDataAvailableEventsPerSecond = 16;
+                obj.dev.OpenDevice();
+                obj.deviceOpen = true;
+                obj.dev.InitializeDevice();
+            end
+            obj.readIndex = 1;
+            obj.writeIndex = 1;
+            obj.samplesAvailable = 0;
+            obj.bufferOverflow = false;
+            obj.receivedSamples = 0;
             obj.listener = addlistener(obj.dev, 'OnNewDataAvailable', @obj.onData);
             
             obj.stopped = false;
@@ -152,7 +176,13 @@ classdef OT_Acquire < handle
             pause(0.005);
     
             if toc(deadline) > 2
-                error('OT_Acquire: timeout waiting for %d samples.', N);
+                available = obj.samplesAvailable;
+                received = obj.receivedSamples;
+                obj.disconnectBTdevice();
+                error('OT_Acquire:DataTimeout', ...
+                    ['OT_Acquire: timeout waiting for %d samples ' ...
+                     '(available: %d, received since start: %d). Connection closed.'], ...
+                    N, available, received);
             end
     
         end
@@ -191,7 +221,15 @@ end
         function disconnectBTdevice(obj)
             % Name kept for BioPatRec compatibility
             try obj.stopAcquisitionEMG(); catch, end
-            try obj.dev.CloseDevice();    catch, end
+            if obj.deviceOpen
+                try
+                    obj.dev.CloseDevice();
+                    obj.deviceOpen = false;
+                catch ME
+                    warning('OT_Acquire:CloseFailed', '%s', ME.message);
+                end
+            end
+            obj.stopped = true;
         end
 
         function delete(obj)
@@ -208,6 +246,7 @@ end
 
             nFrames = floor(numel(s) / obj.Nch);
             if nFrames < 1, return; end
+            obj.receivedSamples = obj.receivedSamples + nFrames;
 
             % Check buffer overflow
             if obj.bufferOverflow

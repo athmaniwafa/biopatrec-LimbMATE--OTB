@@ -104,11 +104,11 @@ function handlesX = RealtimePatRec(patRecX, handlesX)
     % Get sampling time
     sT = str2double(get(handles.et_testingT,'String'));
     tW = patRec.tW;                                                        % Time window size
-    tWs = tW*sF;                                                           % Time window samples
+    tWs = round(tW*sF);                                                           % Time window samples
     iW = patRec.wOverlap;
-    iWs = floor(iW*sF);
+    iWs = max(1, round(iW*sF));
     oW = tW-iW;                                                  % Timestep length from window overlap
-    oWs = oW*sF;                                                           % Overlap samples
+    oWs = tWs-iWs;                                                           % Overlap samples
 
     % Initialze control algorithms
     %patRec = InitControl(patRec); % No longer needed, Initialization is done in GUI
@@ -130,7 +130,11 @@ function handlesX = RealtimePatRec(patRecX, handlesX)
         % Check MIA connession
         objLM.enable_MIA_connection(get(handles.cb_MIA,'Value'))
     end
-    handles.objLM        = objLM;
+    if exist('objLM','var')
+        handles.objLM = objLM;
+    else
+        handles.objLM = [];
+    end
 
     %% Is threshold (thOut) used?
     if(isfield(patRec.patRecTrained,'thOut'));
@@ -241,6 +245,12 @@ function handlesX = RealtimePatRec(patRecX, handlesX)
             delete(handles.obj);
         end
 
+        % Open the bipolar adapter before using the shared acquisition path.
+        if strcmp(deviceName, 'OTB400_bipolar')
+            handles.objOT = OT_Acquire('bipolar', max(patRec.nCh), max(60,sT+10));
+            otCleanup = onCleanup(@() handles.objOT.disconnectBTdevice());
+        end
+
         % Connect the chosen device, it returns the connection object
         obj = ConnectDevice(handles);
         handles.obj = obj;
@@ -256,7 +266,12 @@ function handlesX = RealtimePatRec(patRecX, handlesX)
         end
         for timeWindowNr = 1:max_num_iteration
 
-            cData = Acquire_tWs(deviceName, obj, nCh, iWs);            % acquire a new time window of samples
+            if strcmp(deviceName, 'OTB400_bipolar')
+                cData = obj.getEMG_data_TW_float(iWs);
+                cData = cData(:,patRec.nCh);
+            else
+                cData = Acquire_tWs(deviceName, obj, nCh, iWs);
+            end            % acquire a new time window of samples
             acquireEvent.Data = cData;
             RealtimePatRec_OneShot(0, acquireEvent);                       
         end
@@ -314,6 +329,16 @@ function handlesX = RealtimePatRec(patRecX, handlesX)
         end
     end
 
+    % Report actual predictions separately from processing-time statistics.
+    fprintf('\n--- Real-time PatRec: predicted windows ---\n');
+    for movementIndex = 1:numel(patRec.mov)
+        fprintf('%s: %d\n', char(patRec.mov(movementIndex)), ...
+            nnz(outMovs == movementIndex));
+    end
+    fprintf('VRE connected during test: %d\n', vreCoupling);
+    fprintf('Movement degrees: ');
+    disp(patRec.control.currentDegPerMov);
+
     %Plot processing time
     figure();
     hist(procT(2:end));
@@ -351,15 +376,15 @@ function RealtimePatRec_OneShot(src,event)
     outVectorMotor = zeros(patRec.nOuts,1);
     
     %Only considered the data once it has at least the size of time window
-    if size(tempData,1) >= (patRec.sF*patRec.tW) 
+    if size(tempData,1) >= round(patRec.sF*patRec.tW)
 		
 		% Add artifact if required
         if isfield(patRec,'addArtifact')
             timeLength=str2double(handles.et_testingT.String);
             tempDataArt = AddArtifactRealtime(tempData,timeLength);
-            tData = tempDataArt(end-patRec.sF*patRec.tW+1:end,:);
+            tData = tempDataArt(end-round(patRec.sF*patRec.tW)+1:end,:);
         else % Copy the temporal data to the test data
-            tData = tempData(end-patRec.sF*patRec.tW+1:end,:);   
+            tData = tempData(end-round(patRec.sF*patRec.tW)+1:end,:);
         end
 
         % Start of processing time
