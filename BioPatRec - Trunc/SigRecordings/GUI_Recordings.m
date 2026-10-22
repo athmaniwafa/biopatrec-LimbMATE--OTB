@@ -106,7 +106,16 @@ set(handles.pm_features,'String',['Select feature:'; fID]);
 
 % Choose default command line output for GUI_Recordings
 handles.output = hObject;
-
+% --- ADD DISCONNECT BUTTON DYNAMICALLY ---
+% Place it next to the Start button
+btnPos = get(handles.pb_Start, 'Position');
+disconnectBtn = uicontrol(handles.figure1, 'Style', 'pushbutton', ...
+    'String', 'Disconnect', ...
+    'Units', 'normalized', ...
+    'Position', [btnPos(1) + btnPos(3) + 0.02, btnPos(2), btnPos(3), btnPos(4)], ...
+    'Callback', @pb_disconnect_Callback, ...
+    'Tag', 'pb_disconnect');
+handles.pb_disconnect = disconnectBtn;
 % Update handles structure
 guidata(hObject, handles);
 
@@ -256,13 +265,13 @@ function pb_ApplyButter_Callback(hObject, eventdata, handles)
     cF1 = str2double(get(handles.et_fc1,'String'));
     cF2 = str2double(get(handles.et_fc2,'String'));
     % Load matrix
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     handles.nCh = size(tempdata,2);
     handles.ComPortType = ComPortType;
     handles.deviceName = deviceName;
     tempdata = ApplyButterFilter(sF, N, cF1, cF2, tempdata);
     DataShow(handles,tempdata,sF,sT);
-    save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+    save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 
 
 function et_it_Callback(hObject, eventdata, handles)
@@ -338,20 +347,16 @@ function t_load_ClickedCallback(hObject, eventdata, handles)
         if ~isequal(file, 0)
             [pathstr,name,ext] = fileparts(file);
             if(strcmp(ext,'.mat'))
-                sdata = struct();
                 load([path,file]);
-                if exist('recSession','var') && isfield(recSession,'recordingIntegrity')
-                    sdata.recordingIntegrity = recSession.recordingIntegrity;
-                end
                 if(exist('sF','var')) == 1              % Load current data
                     if(exist('cdata','var')) == 1              % Load current data (fix compatibility issues)
                         DataShow(handles,cdata,sF,sT);
                         tempdata = cdata;
-                        save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+                        save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
                     elseif(exist('cData','var')) == 1              
                         DataShow(handles,cData,sF,sT);
                         tempdata = cdata;
-                        save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+                        save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
                     elseif(exist('allData','var')==1)
                         sT = length(allData)/sF;
                         DataShow(handles,allData,sF,sT);
@@ -360,7 +365,7 @@ function t_load_ClickedCallback(hObject, eventdata, handles)
                         nCh = size(allData,2);
                         ComPortType = 'NOT_KNOWN';
                         deviceName = 'ALCD2';
-                        save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+                        save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
                     end
                 elseif(exist('sData','var')) == 1              % fix compatibility with sData old recordings
                         sF = 2000;                             % We are assuming old recordings to be acquired at 2 KHz
@@ -371,7 +376,7 @@ function t_load_ClickedCallback(hObject, eventdata, handles)
                         deviceName = 'unknown';
                         DataShow(handles,cdata,sF,sT);
                         tempdata = cdata;
-                        save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+                        save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');      
                 elseif exist('recSession','var') || ... % Load session
                        exist('ss','var')                  
                     df = GUI_RecordingSessionShow();
@@ -500,13 +505,12 @@ function t_load_ClickedCallback(hObject, eventdata, handles)
 % --------------------------------------------------------------------
 function t_save_ClickedCallback(hObject, eventdata, handles)    
 % Callback function run when the Save menu item is selected
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     [filename, pathname] = uiputfile({'*.mat','MAT-files (*.mat)'},'Save as', 'Untitled.mat');
 %     copyfile('cdata.mat',[pathname,filename],'f');
-    if isequal(filename,0) || isequal(pathname,0), return; end
     cdata = tempdata;
-    nCh = size(cdata,2);
-    save([pathname filename],'cdata','sF','sT','nCh','ComPortType','deviceName','sdata');
+   nCh = size(cdata,2);
+    save([pathname filename],'cdata','sF','sT','nCh','ComPortType','deviceName');
 
 % --------------------------------------------------------------------
 function m_record_Callback(hObject, eventdata, handles)
@@ -530,13 +534,13 @@ function m_filters_Callback(hObject, eventdata, handles)
 
 % --------------------------------------------------------------------
 function m_Fplh_Callback(hObject, eventdata, handles)
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     handles.nCh = size(tempdata,2);
     handles.ComPortType = ComPortType;
     handles.deviceName = deviceName;
     tempdata = BSbutterPLHarmonics(sF,tempdata);
     DataShow(handles,tempdata,sF,sT);
-    save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+    save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 
 
 % --------------------------------------------------------------------
@@ -551,13 +555,13 @@ function m_spatialFilterDDF_Callback(hObject, eventdata, handles)
 % hObject    handle to m_spatialFilterDDF (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     handles.nCh = size(tempdata,2);
     handles.ComPortType = ComPortType;
     handles.deviceName = deviceName;
     tempdata = SpatialFilterDDF(tempdata);
     DataShow(handles,tempdata,sF,sT);
-    save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+    save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 
 
 % --------------------------------------------------------------------
@@ -565,13 +569,13 @@ function m_spatialFilterSDF_Callback(hObject, eventdata, handles)
 % hObject    handle to m_spatialFilterSDF (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     handles.nCh = size(tempdata,2);
     handles.ComPortType = ComPortType;
     handles.deviceName = deviceName;
     tempdata = SpatialFilterSDF(tempdata);
     DataShow(handles,tempdata,sF,sT);
-    save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+    save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 
 
 % --------------------------------------------------------------------
@@ -579,13 +583,13 @@ function m_spatialFilterDDFAbs_Callback(hObject, eventdata, handles)
 % hObject    handle to m_spatialFilterDDFAbs (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     handles.nCh = size(tempdata,2);
     handles.ComPortType = ComPortType;
     handles.deviceName = deviceName;
     tempdata = SpatialFilterDDFAbs(tempdata);    
     DataShow(handles,tempdata,sF,sT);
-    save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+    save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 
 
 % --- Executes on selection change in pm_features.
@@ -619,14 +623,14 @@ function pb_extract_Callback(hObject, eventdata, handles)
 
     allF = get(handles.pm_features,'String');
     fID  = char(allF(get(handles.pm_features,'Value')));    
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     handles.nCh = size(tempdata,2);
     handles.ComPortType = ComPortType;
     handles.deviceName = deviceName;
     tempdata = ExtractSigFeature(tempdata,sF,fID);
     fD  = 1/0.02;  % considering an overlap of 20 ms
     DataShow(handles,tempdata,fD,sT);
-    save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+    save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 
 
 % --------------------------------------------------------------------
@@ -634,13 +638,13 @@ function m_F50hz_Callback(hObject, eventdata, handles)
 % hObject    handle to m_F50hz (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     handles.nCh = size(tempdata,2);
     handles.ComPortType = ComPortType;
     handles.deviceName = deviceName;
     tempdata = Filter50hz(sF,tempdata);
     DataShow(handles,tempdata,sF,sT);
-    save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+    save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 
 % --- Executes on selection change in lb_channels.
 function lb_channels_Callback(hObject, eventdata, handles)
@@ -670,13 +674,13 @@ function pb_plotAll_Callback(hObject, eventdata, handles)
 % hObject    handle to pb_plotAll (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     handles.nCh = nCh;
     handles.ComPortType = ComPortType;
     handles.deviceName = deviceName;
     tempdata = cdata;
     DataShow(handles,cdata,sF,sT);
-    save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+    save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
     set(handles.pb_plotSelected,'enable','on');
     set(handles.pb_ApplySepAlg,'enable','on');
 
@@ -687,7 +691,7 @@ function pb_plotSelected_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
     % Load data
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     %Selected channels           
     Ch = get(handles.lb_channels,'Value'); 
     tempdata = tempdata(:,Ch);
@@ -702,7 +706,7 @@ function pb_plotSelected_Callback(hObject, eventdata, handles)
     m = 2*abs(dataf((1:NFFT/2),:));
     axes(handles.a_f0);
     plot(f,m);
-    save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+    save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
     set(handles.pb_plotSelected,'enable','off');
     set(handles.pb_ApplySepAlg,'enable','off');
     
@@ -714,18 +718,52 @@ function figure1_ResizeFcn(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-
+% --- Executes on button press in pb_Start.
+% --- Executes on button press in pb_Start.
+% --- Executes on button press in pb_Start.
 % --- Executes on button press in pb_Start.
 function pb_Start_Callback(hObject, eventdata, handles)
-% hObject    handle to pb_Start (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-    fast = 1;
+    global GLOBAL_ADAPTER;
+    global GLOBAL_AFE_SETTINGS;
+    
+    % Get the sampling time from the GUI textbox
     sT = str2double(get(handles.et_sT,'String'));
     tW = str2double(get(handles.et_tW,'String'));
-    handles.sT = sT;
-    handles.tW = tW;
-    GUI_AFEselection(0,0,0,0,0,handles,0,0,fast);
+    
+    % Check if BOTH the adapter and the settings exist
+    if ~isempty(GLOBAL_ADAPTER) && ~isempty(GLOBAL_AFE_SETTINGS)
+        % --- BYPASS AFE, RECORD DIRECTLY ---
+        fprintf('[GUI] Reusing existing adapter and settings. Starting recording immediately...\n');
+        
+        % Restore the settings struct
+        afeSettings = GLOBAL_AFE_SETTINGS;
+        afeSettings.adapter = GLOBAL_ADAPTER;
+        
+        % Ensure the settings struct has sT and tW for FastRecordingSession
+        afeSettings.sT = sT;
+        afeSettings.tW = tW;
+        
+        % Pass sT and tW to the GUI handles so FastRecordingSession can read them
+        handles.sT = sT;
+        handles.tW = tW;
+        
+        [cdata, sF, sT, sdata] = FastRecordingSession(handles, afeSettings);
+        
+        tempdata = cdata;
+        nCh = afeSettings.channels;
+        ComPortType = afeSettings.ComPortType;
+        deviceName = afeSettings.name;
+        plotType = afeSettings.plotType;
+        featureType = afeSettings.featureType;
+        save('cdata.mat','cdata','tempdata','sdata','sF','sT','nCh','ComPortType','deviceName','plotType','featureType');
+    else
+        % --- FIRST RUN OR MISSING SETTINGS: CALL AFE SELECTION ---
+        fprintf('[GUI] No saved settings found. Opening AFE Selection...\n');
+        fast = 1;
+        handles.sT = sT;
+        handles.tW = tW;
+        GUI_AFEselection(0,0,0,0,0,handles,0,0,fast);
+    end
 
 
 
@@ -822,7 +860,7 @@ function pb_ApplySepAlg_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-sdata = struct(); load('cdata.mat');
+load('cdata.mat');
 handles.nCh = size(tempdata,2);
 if handles.nCh == 1
     error('Multichannel data required!')
@@ -833,7 +871,7 @@ alg = get(handles.pm_icaAlg,'String');
 algSel = get(handles.pm_icaAlg,'Value');
 tempdata = ComputeSigSep(tempdata',cell2mat(alg(algSel)),sF)';
 DataShow(handles,tempdata,sF,sT);
-save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 disp('Signal separation algorithm applied.')
 
 
@@ -888,7 +926,7 @@ function pb_cropSig_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-sdata = struct(); load('cdata.mat');
+load('cdata.mat');
 handles.ComPortType = ComPortType;
 handles.deviceName = deviceName;
 cropStart = (str2double(get(handles.ed_cropSigStart,'String')) * sF +1);
@@ -896,7 +934,7 @@ cropEnd = str2double(get(handles.ed_cropSigEnd,'String')) * sF;
 cdata = cdata(cropStart:cropEnd,:);
 tempdata = tempdata(cropStart:cropEnd,:);
 DataShow(handles,tempdata,sF,sT);
-save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 disp('Signal croped.')
 
 % --------------------------------------------------------------------
@@ -924,7 +962,7 @@ set(handles.m_artifactStop,'visible','on')
 set(brushobj,'Enable','on','ActionPostCallback', @saveBrushData);
 
 function saveBrushData(~, eventdata)
-sdata = struct(); load('cdata.mat')
+load('cdata.mat')
 clear artData
 nCh = size(tempdata,2);
 count = 0;
@@ -955,7 +993,7 @@ for i = 1:nCh
         end
     end
 end
-save('cdata.mat','sdata','artData','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+save('cdata.mat','artData','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 
 
 % --------------------------------------------------------------------
@@ -967,7 +1005,7 @@ function m_artifactStop_Callback(hObject, eventdata, handles)
 brushobj = brush(handles.figure1);
 set(brushobj,'Enable','off')
 
-sdata = struct(); load('cdata.mat')
+load('cdata.mat')
 if exist('artData','var')
 
     choice = questdlg('Add selected artifact(s) to Database?', 'Database','Yes','No','No');
@@ -1003,7 +1041,7 @@ if exist('artData','var')
             set(handles.m_showArt,'visible','on')
         case 'No'
             disp('Artifacts discarded.')
-            save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+            save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
     end
 end
 
@@ -1016,7 +1054,7 @@ function m_showArt_Callback(hObject, eventdata, handles)
 % hObject    handle to m_showArt (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
-sdata = struct(); load('cdata.mat')
+load('cdata.mat')
 if exist('artData','var')
     fName = get(handles.m_artifactStop,'UserData');
     if ~isempty(fName)
@@ -1058,7 +1096,7 @@ function m_addNoise_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 
-sdata = struct(); load('cdata.mat');
+load('cdata.mat');
 snr = inputdlg('Enter noise power (SNR in dB):',...
     'Add white gaussian noise', [1 60]);
 snr = str2double(snr{:});
@@ -1068,7 +1106,7 @@ for iCh = 1:size(tempdata,2)
     tempdata(:,iCh) = awgn(tempdata(:,iCh),snr,'measured');
 end
 DataShow(handles,tempdata,sF,sT);
-save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 disp('Added white gaussian noise.')
 
 % --------------------------------------------------------------------
@@ -1092,13 +1130,13 @@ denoiseParams = SetDenoiseParams(wddata,denoiseParams);
 uiwait(wd);
 denoiseParams = get(handles.t_denoiseParams,'UserData');
 if ~isempty(denoiseParams)
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     handles.nCh = size(tempdata,2);
     handles.ComPortType = ComPortType;
     handles.deviceName = deviceName;
     tempdata = WaveletSignalDenoising(tempdata,denoiseParams);    
     DataShow(handles,tempdata,sF,sT);
-    save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+    save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
     disp('Wavelet Denoising applied.')
 end
 
@@ -1115,13 +1153,13 @@ strMeth = {'SWT','SWT + SigSep','DWT','DWT + SigSep','ALCD'};
 if ~ok, return; end
 meth= strMeth{selMeth};
 
-sdata = struct(); load('cdata.mat');
+load('cdata.mat');
 handles.nCh = size(tempdata,2);
 handles.ComPortType = ComPortType;
 handles.deviceName = deviceName;
 tempdata = MotionFilt(tempdata',sF,meth);
 DataShow(handles,tempdata,sF,sT);
-save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
 disp(['Applied mFilter.'])
 
 
@@ -1131,10 +1169,52 @@ function m_vRef_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
     % Load matrix
-    sdata = struct(); load('cdata.mat');
+    load('cdata.mat');
     handles.nCh = size(tempdata,2);
     handles.ComPortType = ComPortType;
     handles.deviceName = deviceName;
     tempdata = tempdata - mean(tempdata,2)*ones(1,size(tempdata,2));
     DataShow(handles,tempdata,sF,sT);
-    save('cdata.mat','sdata','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+    save('cdata.mat','cdata','tempdata','sF','sT','nCh','ComPortType','deviceName');
+
+% --- Executes on button press in pb_disconnect.
+% --- Executes on button press in pb_disconnect.
+% --- Executes on button press in pb_disconnect.
+function pb_disconnect_Callback(hObject, eventdata, handles)
+    global GLOBAL_ADAPTER;
+    global GLOBAL_AFE_SETTINGS;
+    
+    % 1. Try to close the hardware gracefully
+    if ~isempty(GLOBAL_ADAPTER)
+        try
+            GLOBAL_ADAPTER.disconnect();
+        catch ME
+            fprintf('Disconnect warning: %s\n', ME.message);
+        end
+    end
+    
+    % 2. Clear the global variables
+    GLOBAL_ADAPTER = [];
+    GLOBAL_AFE_SETTINGS = [];
+    
+    % 3. Clear any open serial ports (for legacy devices)
+    if ~isempty(instrfind('Status','open'))
+        fclose(instrfind('Status','open'));
+        delete(instrfind);
+    end
+    
+    % 4. Update the GUI message (only if handles and t_msg exist)
+    if nargin > 2 && ~isempty(handles) && isstruct(handles) && isfield(handles, 't_msg')
+        set(handles.t_msg, 'String', 'Disconnected. Ready for new connection.');
+    end
+    fprintf('[GUI] Hardware disconnected and globals cleared.\n');
+
+
+% --- Executes when user attempts to close figure1.
+function figure1_CloseRequestFcn(hObject, eventdata, handles)
+    % Call our disconnect function to clean up the hardware
+    % We do NOT pass handles here to avoid scoping issues during close
+    pb_disconnect_Callback(hObject, eventdata, []); 
+    
+    % Delete the GUI window
+    delete(hObject);

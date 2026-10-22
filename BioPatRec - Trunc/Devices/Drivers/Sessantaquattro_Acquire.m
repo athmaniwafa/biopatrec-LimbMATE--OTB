@@ -1,9 +1,4 @@
 classdef Sessantaquattro_Acquire < handle
-    % Sessantaquattro_Acquire
-    % Wrapper for the Sessantaquattro+ over TCP.
-    % Sends the 16-bit command word (matching colleague's working script).
-    % Uses Java sockets (no Instrument Control Toolbox required).
-
     properties
         serverSocket
         clientSocket
@@ -11,8 +6,8 @@ classdef Sessantaquattro_Acquire < handle
         out
 
         Fs = 1000
-        nCh = 12             % total channels sent (8 EMG + 4 aux)
-        nChUsed = 8          % channels BioPatRec reads
+        nCh = 12             % 12 for 8ch, 72 for 64ch
+        nChUsed = 8          % 8 or 64
         port = 45454
 
         stopped = false
@@ -28,19 +23,27 @@ classdef Sessantaquattro_Acquire < handle
             if nargin < 3 || isempty(port),        port = 45454;     end
 
             obj.port = port;
-            obj.nChUsed = min(nCh, obj.nCh);
+            obj.nChUsed = nCh;
+            
+            % Configure hardware for 8ch or 64ch
+            if nCh == 64
+                obj.nCh = 72; 
+                NCH = 3;      % 64 channels
+                MODE = 0;     % Monopolar (Matrix)
+            else
+                obj.nCh = 12; 
+                NCH = 0;      % 8 channels
+                MODE = 1;     % Bipolar
+            end
 
-            % Build 16-bit command word = 8513
-            %   GO=1, HPF=1, MODE=1 (bipolar), NCH=0 (8ch), FSAMP=1 (1000Hz)
+            % Build 16-bit command word
             GO    = 1;
             REC   = 0;
             TRIG  = 0;
             EXTEN = 0;
             HPF   = 1;
             HRES  = 0;
-            MODE  = 1;
-            NCH   = 0;
-            FSAMP = 1;
+            FSAMP = 0;
 
             cmd = GO + REC*2 + TRIG*4 + EXTEN*16 + HPF*64 + HRES*128 ...
                 + MODE*256 + NCH*2048 + FSAMP*8192;
@@ -63,23 +66,39 @@ classdef Sessantaquattro_Acquire < handle
             obj.out = java.io.DataOutputStream(obj.clientSocket.getOutputStream());
             obj.in  = java.io.DataInputStream(obj.clientSocket.getInputStream());
 
-            % Send 16-bit big-endian command
             obj.out.writeShort(int16(cmd));
             obj.out.flush();
             fprintf('[SQ] Command sent.\n');
+            
+            obj.started = true;
+            obj.stopped = false;
         end
 
         function startAcquisitionEMG(obj, varargin)
-            if obj.started, return; end
-            obj.started = true;
-            obj.stopped = false;
-            fprintf('[SQ] Streaming started.\n');
+            if obj.started && ~obj.stopped
+                try
+                    if obj.nChUsed == 64, NCH = 3; MODE = 0; else, NCH = 0; MODE = 1; end
+                    cmd = 1 + 64 + MODE*256 + NCH*2048 + 8192;
+                    obj.out.writeShort(int16(cmd));
+                    obj.out.flush();
+                    fprintf('[SQ] Streaming started.\n');
+                catch
+                end
+            end
         end
 
-        function block = getEMG_data_TW_float(obj, N)
+                        function block = getEMG_data_TW_float(obj, N)
             if nargin < 2, N = 100; end
 
-            bytesPerSample = 2 * obj.nCh;   % 24 bytes for 12 ch
+            % For Matrix (64ch), the hardware sends 72 channels total.
+            % We MUST read all 72 to keep the TCP buffer aligned.
+            if obj.nChUsed == 64
+                totalCh = 72;
+            else
+                totalCh = 12;
+            end
+            
+            bytesPerSample = 2 * totalCh;
             bytesNeeded = N * bytesPerSample;
 
             deadline = tic;
@@ -98,7 +117,7 @@ classdef Sessantaquattro_Acquire < handle
             if nRead < 1, return; end
 
             for i = 1:nRead
-                for ch = 1:obj.nCh
+                for ch = 1:totalCh
                     raw = obj.in.readShort();
                     if ch <= obj.nChUsed
                         block(i, ch) = single(raw) * obj.ConvFact;
@@ -110,29 +129,32 @@ classdef Sessantaquattro_Acquire < handle
         function stopAcquisitionEMG(obj)
             if ~obj.started || obj.stopped, return; end
             try
-                % Stop command = GO=0, rest same
-                stopCmd = 0 + 1*64 + 1*256 + 0*2048 + 1*8192;
+                if obj.nChUsed == 64, NCH = 3; MODE = 0; else, NCH = 0; MODE = 1; end
+                stopCmd = 0 + 64 + MODE*256 + NCH*2048 + 8192;
                 obj.out.writeShort(int16(stopCmd));
                 obj.out.flush();
+                fprintf('[SQ] Stop command sent.\n');
             catch
             end
-            pause(0.3);
+            obj.stopped = true;
+        end
+
+        function disconnectBTdevice(obj)
+            if isempty(obj.serverSocket), return; end
+            try obj.stopAcquisitionEMG(); catch, end
             try obj.in.close();           catch, end
             try obj.out.close();          catch, end
             try obj.clientSocket.close(); catch, end
             try obj.serverSocket.close(); catch, end
-            obj.stopped = true;
+            try
+                obj.serverSocket = [];
+                obj.clientSocket = [];
+                java.lang.System.gc(); 
+            catch
+            end
             obj.started = false;
-            fprintf('[SQ] Streaming stopped.\n');
-        end
-
-        function disconnectBTdevice(obj)
-            try obj.stopAcquisitionEMG(); catch, end
+            obj.stopped = false;
             fprintf('[SQ] Device disconnected.\n');
-        end
-
-        function delete(obj)
-            try obj.disconnectBTdevice(); catch, end
         end
     end
 end

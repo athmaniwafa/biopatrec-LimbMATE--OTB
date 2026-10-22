@@ -96,9 +96,7 @@ playTimer.UserData = struct('frames', frames,...
                             'axes', handles.a_t0);
               
 handles.playTimer = playTimer;              
-              
 
-                          
 % Update handles structure
 guidata(hObject, handles);
 
@@ -110,14 +108,14 @@ set(handles.pm_features,'String',fID);
 
 
 % --- Outputs from this function are returned to the command line.
+% --- Outputs from this function are returned to the command line.
+% --- Outputs from this function are returned to the command line.
 function varargout = GUI_Recordings_Image_OutputFcn(hObject, eventdata, handles) 
-% varargout  cell array for returning output args (see VARARGOUT);
-% hObject    handle to figure
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
-% Get default command line output from handles structure
-varargout{1} = handles.output;
+    if nargout > 1
+        varargout{2} = handles; % Return full handles structure
+    else
+        varargout{1} = handles.output;
+    end
 
 function et_sT_Callback(hObject, eventdata, handles)
 % hObject    handle to et_sT (see GCBO)
@@ -360,9 +358,8 @@ end
 
 % --- Executes on button press in pb_start.
 function pb_start_Callback(hObject, eventdata, handles)
-% hObject    handle to pb_start (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
+    global HD_GUI_HANDLES;
+    HD_GUI_HANDLES = handles; % Store handles globally
     mode = 2;
     % Call AFE selection GUI
     GUI_AFEselection(0,0,0,0,0,handles,0,0,mode);
@@ -490,10 +487,21 @@ function pb_stopImage_Callback(hObject, eventdata, handles)
 
 % --- Executes on button press in pb_disconnect.
 function pb_disconnect_Callback(hObject, eventdata, handles)
-% hObject    handle to pb_disconnect (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-    set(hObject, 'UserData', 1); % Set disconnect button pressed
+    % Set flag to stop the continuous recording loop
+    set(hObject, 'UserData', 1); 
+    
+    % Force close the hardware connection right now
+    try
+        global GLOBAL_SQ_OBJ;
+        if ~isempty(GLOBAL_SQ_OBJ)
+            GLOBAL_SQ_OBJ.disconnectBTdevice();
+            GLOBAL_SQ_OBJ = [];
+        end
+    catch
+    end
+    
+    set(handles.t_msg, 'String', 'Disconnected.');
+
     
 % --- Executes on selection change in pm_pType.
 function pm_pType_Callback(hObject, eventdata, handles)
@@ -723,80 +731,48 @@ function startRecording(handles, afeSettings)
     end
     handles.sT = sT;
     handles.sTall = sT;
-    
-    % Initialize OTB400 with parameters selected in the GUI
-    if contains(deviceName, 'OTB400')
-    
-        if sF ~= 2048
-            error('OTB400 requires sampling rate 2048 Hz.');
-        end
-    
-        if contains(deviceName, 'HD')
-    
-            if ~isfield(afeSettings, 'OTB400Electrodes')
-                error('OTB400 HD: electrode configuration missing.');
-            end
-    
-            electrodes = afeSettings.OTB400Electrodes;
-            OTB400_ChannelMap('install',handles.figure1,handles.a_t0,nCh,electrodes);
-            set(handles.et_rows,'String','8');
-            set(handles.et_columns,'String',num2str(nCh/8));
-            objOT = OT_Acquire('hd', nCh, max(60,sT+10), electrodes);
-    
-        else
-    
-            OTB400_ChannelMap('remove',handles.figure1);
-            objOT = OT_Acquire('bipolar', nCh, max(60,sT+10));
-    
-        end
-    
-        handles.objOT = objOT;
-    
-        % Close device even if this function exits due to an error
-        otCleanup = onCleanup(@() objOT.disconnectBTdevice());
-    else
-        OTB400_ChannelMap('remove',handles.figure1);
+        % --- WAIT FOR USER FIRST ---
+        % --- WAIT FOR USER FIRST ---
+       % --- WAIT FOR USER FIRST ---
+    if ~cont
+        set(handles.t_msg, 'String', 'Adjust electrodes. Click OK when ready.');
+        drawnow;
+        
+        figure(handles.figure1); 
+        d = dialog('Position',[500 500 300 150],'Name','Get Ready');
+        uicontrol('Parent',d,'Style','text','Position',[20 80 260 40],...
+                  'String','Adjust your electrodes. Click OK to start recording.');
+        uicontrol('Parent',d,'Style','pushbutton','String','OK',...
+                  'Position',[110 20 80 30],'Callback','delete(gcf)');
+        uiwait(d); % Force MATLAB to pause until you click OK
+        
+        set(handles.t_msg, 'String', 'RECORDING NOW!'); 
+        drawnow;
     end
 
+    % --- NOW START THE HARDWARE ---
+    dev = afeSettings.adapter;
+    dev.start(afeSettings);
+
     
-    % Connect the chosen device, it returns the connection object
-    obj = ConnectDevice(handles);
-
-    % Set the selected device and Start the acquisition
-    SetDeviceStartAcquisition(handles, obj);
-
     % Collect data
     if ~cont % Non-continuous mode
-        if contains(deviceName,'OTB400')
-            nTotal = round(sT*sF);
-            nWindows = ceil(nTotal/tWs);
-        else
-            nTotal = sT*sF;              % Original behaviour for other devices
-            nWindows = sT/tW;
-        end
+        nTotal = round(sT*sF);
+        nWindows = ceil(nTotal/tWs);
         cDataAll = zeros(nTotal, nCh);
         for timeWindowNr = 1:nWindows
             firstSample = (timeWindowNr-1)*tWs+1;
-            if contains(deviceName,'OTB400')
-                nThisWindow = min(tWs,nTotal-firstSample+1);
-            else
-                nThisWindow = tWs;
-            end
-            [cData, error] = Acquire_tWs(deviceName, obj, nCh, nThisWindow, compressData);
-            if error == 1
-                errordlg('Error occurred during the acquisition!','Error');
-                return
-            end
+            nThisWindow = min(tWs,nTotal-firstSample+1);
+            
+            % Use Adapter instead of Acquire_tWs
+            cData = dev.read(nThisWindow);
+            
             cDataAll(firstSample:firstSample+nThisWindow-1,:)=cData;
             if live
                 previewTw(handles.a_t0,cData, rows, cols);
             end
             % Show current recording time
-            if contains(deviceName,'OTB400')
-                cT = (firstSample+nThisWindow-1)/sF;
-            else
-                cT = timeWindowNr*tW;
-            end
+            cT = (firstSample+nThisWindow-1)/sF;
             tT = sT;
             cT = [num2str(floor(cT/60)) ':' num2str(floor(mod(cT,60)),'%02d')];
             tT = [num2str(floor(tT/60)) ':' num2str(floor(mod(tT,60)),'%02d')];
@@ -809,11 +785,7 @@ function startRecording(handles, afeSettings)
         drawnow;
         cDataAll = [];
         while ~get(handles.pb_disconnect, 'UserData') % Check if disconnect button pressed
-            [cData, error] = Acquire_tWs(deviceName, obj, nCh, tWs, compressData);    % acquire a new time window of samples  
-            if error == 1
-                errordlg('Error occurred during the acquisition!','Error');
-                return
-            end
+            cData = dev.read(tWs);
             cDataAll = [cDataAll; cData];
             if live
                 previewTw(handles.a_t0,cData, rows, cols);
@@ -840,7 +812,7 @@ function startRecording(handles, afeSettings)
     guidata(handles.figure1, handles);
 
     % Stop acquisition
-    StopAcquisition(deviceName, obj);
+    dev.stop();
     
     % Show message
     set(handles.t_msg, 'String', 'Recording finished!');
@@ -861,8 +833,7 @@ function preprocessMovie(hObject)
     % Get frame data from timer
     movieSession = handles.playTimer.UserData;
     
-    % Preprocessing variables
-    tI      = str2double(get(handles.et_ti,'String'));
+    % Preprocessing variables    tI      = str2double(get(handles.et_ti,'String'));
     tW      = str2double(get(handles.et_tw,'String'));
     sTi     = round(tI * recSession.sF);
     sTw     = round(tW * recSession.sF);
@@ -1168,15 +1139,26 @@ function cb_showCh_Callback(hObject, eventdata, handles)
 
 
 % --- Executes when user attempts to close figure1.
-function figure1_CloseRequestFcn(hObject, eventdata, handles)
-% hObject    handle to figure1 (see GCBO)
-% eventdata  reserved - to be defined in a future version of MATLAB
-% handles    structure with handles and user data (see GUIDATA)
-
-% Hint: delete(hObject) closes the figure
-stop(handles.playTimer);
-delete(handles.playTimer);
-delete(hObject);
+ function figure1_CloseRequestFcn(hObject, eventdata, handles)
+    % Stop and delete the playback timer
+    try
+        stop(handles.playTimer); 
+        delete(handles.playTimer); 
+    catch
+    end
+    
+    % Force disconnect the hardware
+    try
+        global GLOBAL_SQ_OBJ;
+        if ~isempty(GLOBAL_SQ_OBJ)
+            GLOBAL_SQ_OBJ.disconnectBTdevice();
+            GLOBAL_SQ_OBJ = [];
+        end
+    catch
+    end
+    
+    % Delete the GUI window
+    delete(hObject);
 
 
 % --- Executes on button press in cb_ws.
@@ -1470,6 +1452,7 @@ function [cgx, cgy] = computeCOG(iData, minVal)
 % minVal is an optional argument that is subtracted from the image,
 % otherwise the minimum value of the image is used
 if nargin == 2
+
     iData = iData - minVal;
 else
     iData = iData - min(iData(:));
