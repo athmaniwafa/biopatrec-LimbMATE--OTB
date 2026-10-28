@@ -20,7 +20,7 @@ global      plotGain;
 global      barChartParams;
 
 % Check if GUI window is still alive
-if ~isvalid(handles.a_t0)
+if isempty(handles) || ~isstruct(handles) || ~isfield(handles, 'a_t0') || ~isvalid(handles.a_t0)
     return;
 end
 
@@ -39,6 +39,19 @@ if rampStatus
     rampMin     = handles.RampMin;
     rampMax     = handles.currentRampMax;
 end
+
+% Initialize plots if they don't exist yet (for Fast Recording)
+if ~isfield(handles, 'p_t0') || isempty(handles.p_t0)
+    if isvalid(handles.a_t0)
+        handles.p_t0 = plot(handles.a_t0, zeros(100, nCh));
+    end
+end
+if ~isfield(handles, 'p_f0') || isempty(handles.p_f0)
+    if isvalid(handles.a_f0)
+        handles.p_f0 = plot(handles.a_f0, zeros(100, nCh));
+    end
+end
+
 p_t0 = handles.p_t0;
 p_f0 = handles.p_f0;
 
@@ -52,18 +65,30 @@ if(isempty(allData))                                                   % Fist DA
 end
 tempData = event.Data;
 
-if isfield(handles, 'OTBRecordingMap') && all(isgraphics(handles.OTBRecordingMap))
-    mapAx = getappdata(handles.OTBRecordingMap, 'RecordingMapAxes');
-    if isgraphics(mapAx, 'axes') && ~isempty(tempData)
-        OTB400_ChannelMap('preview', mapAx, tempData);
+% --- FIX FOR LIMBMATE / OTB MAP CRASH ---
+mapAx = [];
+if isfield(handles, 'deviceName') && isLimbMATE(handles.deviceName)
+    % Do nothing, LimbMATE doesn't have an OTB map
+else
+    if isfield(handles, 'OTBRecordingMap') && ~isempty(handles.OTBRecordingMap)
+        try
+            mapAx = getappdata(handles.OTBRecordingMap, 'RecordingMapAxes');
+        catch
+            mapAx = []; 
+        end
     end
 end
+
+if isscalar(mapAx) && isgraphics(mapAx, 'axes') && ~isempty(tempData)
+    OTB400_ChannelMap('preview', mapAx, tempData);
+end
+% ----------------------------------------
 
 allData = [allData; tempData];
 timeStamps = [timeStamps; event.TimeStamps];
 
 %% Status bar update
-if handles.fast
+if isfield(handles, 'fast') && handles.fast
     if strcmp(ComPortType,'NI')
         x = 1-(timeStamps(end)/sT);
     else
