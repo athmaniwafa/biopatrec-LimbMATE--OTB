@@ -684,7 +684,6 @@ function startRecording(handles, afeSettings)
         ComPortName = afeSettings.ComPortName;  
     end
     
-    % Save back acquisition parameters to the handles
     handles.nCh         = nCh;
     handles.sF          = sF;
     handles.ComPortType = ComPortType;
@@ -701,22 +700,14 @@ function startRecording(handles, afeSettings)
     end
     cont = get(handles.cb_cont,'Value');
     
-    % Get sampling time (if not continuous) and time window
-    % Time window selected by user (seconds)
     tW = str2double(get(handles.et_rTw, 'String'));
-    
     if ~isfinite(tW) || tW <= 0
         error('Invalid time window.');
     end
-    
-    % Number of samples per window
     tWs = round(tW * sF);
-    
     if tWs < 1
         error('Time window must contain at least one sample.');
     end
-    
-    % Align window duration with the actual number of samples
     tW = tWs / sF;
     
     handles.tW = tW;
@@ -724,37 +715,34 @@ function startRecording(handles, afeSettings)
 
     if cont
         sT = tW;
-        % Reset disconnect button status
         set(handles.pb_disconnect, 'UserData',0);
     else
         sT = str2double(get(handles.et_sT,'String'));
     end
     handles.sT = sT;
     handles.sTall = sT;
-        % --- WAIT FOR USER FIRST ---
-        % --- WAIT FOR USER FIRST ---
-       % --- WAIT FOR USER FIRST ---
+    
     if ~cont
         set(handles.t_msg, 'String', 'Adjust electrodes. Click OK when ready.');
         drawnow;
-        
         figure(handles.figure1); 
         d = dialog('Position',[500 500 300 150],'Name','Get Ready');
         uicontrol('Parent',d,'Style','text','Position',[20 80 260 40],...
                   'String','Adjust your electrodes. Click OK to start recording.');
         uicontrol('Parent',d,'Style','pushbutton','String','OK',...
                   'Position',[110 20 80 30],'Callback','delete(gcf)');
-        uiwait(d); % Force MATLAB to pause until you click OK
-        
+        uiwait(d); 
         set(handles.t_msg, 'String', 'RECORDING NOW!'); 
         drawnow;
     end
 
-    % --- NOW START THE HARDWARE ---
+     % --- START THE HARDWARE ---
     dev = afeSettings.adapter;
     dev.start(afeSettings);
-
     
+    % --- FLUSH THE BUFFER AFTER THE USER CLICKS OK ---
+    pause(0.2);
+
     % Collect data
     if ~cont % Non-continuous mode
         nTotal = round(sT*sF);
@@ -764,14 +752,12 @@ function startRecording(handles, afeSettings)
             firstSample = (timeWindowNr-1)*tWs+1;
             nThisWindow = min(tWs,nTotal-firstSample+1);
             
-            % Use Adapter instead of Acquire_tWs
             cData = dev.read(nThisWindow);
             
             cDataAll(firstSample:firstSample+nThisWindow-1,:)=cData;
             if live
                 previewTw(handles.a_t0,cData, rows, cols);
             end
-            % Show current recording time
             cT = (firstSample+nThisWindow-1)/sF;
             tT = sT;
             cT = [num2str(floor(cT/60)) ':' num2str(floor(mod(cT,60)),'%02d')];
@@ -780,18 +766,16 @@ function startRecording(handles, afeSettings)
             drawnow;
         end
     else % Continuous mode
-        % Show recording message
         set(handles.t_msg, 'String', 'Continuous recording...');
         drawnow;
         cDataAll = [];
-        while ~get(handles.pb_disconnect, 'UserData') % Check if disconnect button pressed
+        while ~get(handles.pb_disconnect, 'UserData') 
             cData = dev.read(tWs);
             cDataAll = [cDataAll; cData];
             if live
                 previewTw(handles.a_t0,cData, rows, cols);
             end
         end
-        % Compute length of recorded session
         sT = size(cDataAll,1)/sF;
     end
     
@@ -811,10 +795,8 @@ function startRecording(handles, afeSettings)
     end
     guidata(handles.figure1, handles);
 
-    % Stop acquisition
     dev.stop();
     
-    % Show message
     set(handles.t_msg, 'String', 'Recording finished!');
     setNeedsUpdate(handles.figure1);
 
@@ -833,7 +815,8 @@ function preprocessMovie(hObject)
     % Get frame data from timer
     movieSession = handles.playTimer.UserData;
     
-    % Preprocessing variables    tI      = str2double(get(handles.et_ti,'String'));
+    % Preprocessing variables  
+    tI      = str2double(get(handles.et_ti,'String'));
     tW      = str2double(get(handles.et_tw,'String'));
     sTi     = round(tI * recSession.sF);
     sTw     = round(tW * recSession.sF);

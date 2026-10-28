@@ -488,7 +488,7 @@ while ex <= nM
         end
     end
     
-    if error == 1
+    if exist('error', 'var') && error == 1
         errordlg('Error occurred during the acquisition!','Error');
         return
     else

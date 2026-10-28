@@ -1299,7 +1299,12 @@ function pb_connect_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 compath = get(handles.et_connect,'String');
-handles.com = Connect_ALC(compath);
+try
+    handles.com = MIA_Acquire(['COM' compath]); % Uses the new class we made
+    set(handles.t_msg,'String','MIA Hand Connected');
+catch ME
+    set(handles.t_msg,'String',['MIA Connection Failed: ' ME.message]);
+end
 %handles.com = MasterModuleComm(compath);
 if TestConnectionALC(handles.com)==1; %Write S to stop program
     set(handles.t_msg,'String','Connection established');

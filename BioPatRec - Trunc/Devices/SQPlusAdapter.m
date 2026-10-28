@@ -3,76 +3,99 @@ classdef SQPlusAdapter < DeviceInterface
         objSQ
         nCh
     end
+
     methods
         function obj = SQPlusAdapter(objSQ, nCh)
             obj.objSQ = objSQ;
-            obj.nCh = nCh;
+            obj.nCh   = nCh;
         end
-        
-        function start(obj, cfg)
+
+        function start(obj, cfg) %#ok<INUSD>
             global GLOBAL_SQ_OBJ;
-            
-            % If we don't have an active connection, ask the user how to configure it
-            if isempty(GLOBAL_SQ_OBJ)
-                choice = questdlg('Select SQ+ configuration:', 'SQ+ Mode', ...
-                                  '8 Channels (Bipolar)', '64 Channels (Matrix)', '8 Channels (Bipolar)');
-                if isempty(choice), choice = '8 Channels (Bipolar)'; end
-                
-                if strcmp(choice, '64 Channels (Matrix)')
+
+            % Drop a stale connection or one configured for the other mode
+            if ~isempty(GLOBAL_SQ_OBJ) && isvalid(GLOBAL_SQ_OBJ) ...
+                    && GLOBAL_SQ_OBJ.nChUsed ~= obj.nCh
+                try GLOBAL_SQ_OBJ.disconnectBTdevice(); catch, end
+                GLOBAL_SQ_OBJ = [];
+            end
+
+            if isempty(GLOBAL_SQ_OBJ) || ~isvalid(GLOBAL_SQ_OBJ) || isempty(GLOBAL_SQ_OBJ.srv)
+                if obj.nCh == 64
                     fprintf('[SQ] Adapter creating 64-channel Matrix connection...\n');
-                    GLOBAL_SQ_OBJ = Sessantaquattro_Acquire(64, 120, 45454);
                 else
                     fprintf('[SQ] Adapter creating 8-channel Bipolar connection...\n');
-                    GLOBAL_SQ_OBJ = Sessantaquattro_Acquire(8, 120, 45454);
                 end
+                GLOBAL_SQ_OBJ = Sessantaquattro_Acquire(obj.nCh, 120, 45454);
             else
                 fprintf('[SQ] Adapter reusing existing hardware connection...\n');
             end
-            
+
             obj.objSQ = GLOBAL_SQ_OBJ;
-            obj.objSQ.startAcquisitionEMG();
+            obj.objSQ.flushInput();
         end
-        
+
         function data = read(obj, n)
-            if isempty(obj.objSQ), data = zeros(n, obj.nCh); return; end
-            data_raw = obj.objSQ.getEMG_data_TW_float(n);
-            
-            if size(data_raw, 1) == obj.nCh && size(data_raw, 2) == n
-                data = data_raw';
-            else
-                data = data_raw;
+            global GLOBAL_SQ_OBJ;
+            data = zeros(n, obj.nCh);
+            sq = GLOBAL_SQ_OBJ;
+            if isempty(sq) || ~isvalid(sq)
+                return;
             end
+            try
+                data_raw = sq.getEMG_data_TW_float(n);
+            catch ME
+                try GLOBAL_SQ_OBJ.disconnectBTdevice(); catch, end
+                GLOBAL_SQ_OBJ = [];
+                error('SQ connection lost (%s). Click Record again.', ME.message);
+            end
+            c = min(obj.nCh, size(data_raw, 2));
+            data(:, 1:c) = data_raw(:, 1:c);
         end
-        
+
         function stop(obj)
-            try, obj.objSQ.stopAcquisitionEMG(); catch, end
+            obj.disconnect();
         end
-        
+
         function disconnect(obj)
             global GLOBAL_SQ_OBJ;
-            try, obj.objSQ.disconnectBTdevice(); catch, end
+            try GLOBAL_SQ_OBJ.disconnectBTdevice(); catch, end
             GLOBAL_SQ_OBJ = [];
+            obj.objSQ = [];
         end
     end
+
     methods (Static)
         function [adapter, nCh, vCh] = configure(handles)
-            % Force sample rate to 1000 Hz
+            choice = questdlg('Select Sessantaquattro+ Mode:', 'SQ+ Mode', ...
+                '8 Channels (Bipolar)', '64 Channels (Matrix)', '8 Channels (Bipolar)');
+            if isempty(choice), choice = '8 Channels (Bipolar)'; end
+
+            if strcmp(choice, '64 Channels (Matrix)')
+                set(handles.et_chs, 'String', '64');
+                nCh = 64;
+                srTarget = '2000';
+            else
+                set(handles.et_chs, 'String', '8');
+                nCh = 8;
+                srTarget = '1000';
+            end
+
+            % Sample rate must match the mode (1000 Hz bipolar / 2000 Hz matrix)
             srList = cellstr(get(handles.pm_sampleRate, 'String'));
-            idxSR = find(strcmp(srList, '1000'), 1);
+            idxSR  = find(strcmp(srList, srTarget), 1);
             if isempty(idxSR)
-                srList{end+1} = '1000'; set(handles.pm_sampleRate, 'String', srList);
+                srList{end+1} = srTarget;
+                set(handles.pm_sampleRate, 'String', srList);
                 idxSR = numel(srList);
             end
             set(handles.pm_sampleRate, 'Value', idxSR);
-            
-            % Force COM port
+
             comList = cellstr(get(handles.ComPortType, 'String'));
-            idxCOM = find(strcmp(comList, 'COM'), 1);
+            idxCOM  = find(strcmp(comList, 'COM'), 1);
             if ~isempty(idxCOM), set(handles.ComPortType, 'Value', idxCOM); end
-            
-            nCh = str2double(get(handles.et_chs, 'String'));
+
             vCh = 1:nCh;
-            
             adapter = SQPlusAdapter([], nCh);
         end
     end
