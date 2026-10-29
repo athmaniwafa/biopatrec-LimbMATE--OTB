@@ -35,6 +35,7 @@ useLeg       = varargin{12};
 rampStatus   = varargin{13};
 saveRec     = true;
 
+% The gate (OTB400_HD / SQ+ "Session + map") lives inside this function.
 handles.OTBRecordingMap = OTB400_OpenRecordingMap(afeSettings, handles);
 
 if sum(strcmp(varargin,'replace')) > 0
@@ -381,6 +382,10 @@ while ex <= nM
         
         % --- ADAPTER PATTERN ---
         dev = afeSettings.adapter;
+
+        % Discard data that piled up during countdown / plot setup,
+        % so the plot starts at "now" instead of fast-forwarding.
+        if ismethod(dev,'flush'), dev.flush(); end
         
         for rep = 1 : nR
             rep
@@ -410,6 +415,15 @@ while ex <= nM
                 end
 
                 RecordingSession_ShowData(0, acquireEvent);
+
+                % SQ+ matrix "Session + map": live amplitude heatmap
+                if isappdata(handles.output,'SQHeatmapUpdate')
+                    try
+                        updateHeatFcn = getappdata(handles.output,'SQHeatmapUpdate');
+                        updateHeatFcn(cData);
+                    catch
+                    end
+                end
                 
                 samplesCounter = samplesCounter + tWs;
                 switch handles.contraction
@@ -516,6 +530,7 @@ end
 
 %% Session finish..
 cdata = recSessionData(:,:,:);
+delete(findall(0,'Tag','SQHeatFig'));
 
 if saveRec
     if isvalid(handles.t_msg), set(handles.t_msg,'String','Session Terminated'); end

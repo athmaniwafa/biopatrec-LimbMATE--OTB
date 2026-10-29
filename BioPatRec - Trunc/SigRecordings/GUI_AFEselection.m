@@ -66,14 +66,12 @@ if not(isempty(instrfind('Status','open')))
 end
 
 % Get devices name
-% Get devices name
 dev = get(handles.pm_name,'String');
 selDev = get(handles.pm_name,'Value');
 AFE_settings.name = dev(selDev);
 deviceName = AFE_settings.name;
 
 % --- OVERRIDE: If a LimbMATE is connected, force the device to LimbMATE ---
-% (This prevents the NI DAQ crash if the dropdown was left on AD2)
 if isfield(handles, 'objLM') && ~isempty(handles.objLM)
     deviceName = 'LimbMATE';
     AFE_settings.name = deviceName;
@@ -208,10 +206,33 @@ if mode == 0
     useLeg = handles.varargin{11};
 end
 
-% --- HD-EMG CHECK ---
+% --- SQ+ matrix: the display choice decides the flow ---
 if (strcmp(char(deviceName{1}), 'SQ+') || isSQplus(deviceName)) && nCh == 64
-    mode = 2; 
-    fprintf('[GUI] Switching to HD-EMG Heatmap (Mode 2)\n');
+    if isfield(handles,'SQElectrodes')
+        AFE_settings.OTB400Electrodes = handles.SQElectrodes;
+    else
+        AFE_settings.OTB400Electrodes = struct('MULTIPLE_IN1','BIG');
+    end
+    if isfield(handles,'SQDisplay')
+        AFE_settings.SQDisplay = handles.SQDisplay;
+    else
+        AFE_settings.SQDisplay = 'image';
+    end
+    if strcmp(AFE_settings.SQDisplay, 'image')
+        mode = 2;
+        fprintf('[GUI] SQ+ matrix: heatmap image (Mode 2)\n');
+    else
+        fprintf('[GUI] SQ+ matrix: recording session (%s)\n', AFE_settings.SQDisplay);
+    end
+end
+
+% --- The recording window must still exist (modes 0, 1, 3) ---
+if mode ~= 2 && (~isstruct(hGUI_Rec) || ~isfield(hGUI_Rec,'output') || ...
+        ~isscalar(hGUI_Rec.output) || ~isgraphics(hGUI_Rec.output,'figure'))
+    errordlg(['The recording window was closed. Close this window and ' ...
+              'press Record again from the Recording Session window.'], 'Recording');
+    close(ancestor(hObject,'figure'));
+    return
 end
 
 if isfield(handles, 'vCh')
@@ -271,6 +292,8 @@ switch mode
         tempdata = cdata;
         save('cdata.mat','cdata','tempdata','sdata','sF','sT','nCh','ComPortType','deviceName','plotType','featureType');
         close(GUI_RecordingSession);
+        % Close this window too: its saved handles are now stale
+        close(ancestor(hObject,'figure'));
     case 1
         % --- SAVE EVERYTHING FOR THE NEXT RUN ---
         global GLOBAL_ADAPTER;
@@ -337,6 +360,8 @@ deviceName = char(contents{get(handles.pm_name,'Value')});
 if isfield(handles, 'nCh'), handles = rmfield(handles, 'nCh'); end
 if isfield(handles, 'vCh'), handles = rmfield(handles, 'vCh'); end
 if isfield(handles, 'OTB400Electrodes'), handles = rmfield(handles, 'OTB400Electrodes'); end
+if isfield(handles, 'SQElectrodes'), handles = rmfield(handles, 'SQElectrodes'); end
+if isfield(handles, 'SQDisplay'),    handles = rmfield(handles, 'SQDisplay');    end
 handles.adapter = []; 
 handles.objSQ = [];
 
@@ -413,26 +438,41 @@ if strcmp(deviceName, 'SQ+')
     choice = questdlg('Select SQ+ configuration:', 'SQ+ Mode', ...
                       '8 Channels (Bipolar)', '64 Channels (Matrix)', '8 Channels (Bipolar)');
     if isempty(choice), choice = '8 Channels (Bipolar)'; end
-    
+
     if strcmp(choice, '64 Channels (Matrix)')
         handles.nCh = 64;
         handles.vCh = 1:64;
         set(handles.et_chs, 'String', '64');
+
+        g = questdlg('Matrix adapter:', 'SQ+ Matrix', '8x8', '13x5', '8x8');
+        if isempty(g), g = '8x8'; end
+        if strcmp(g, '8x8'), gridType = 'BIG'; else, gridType = 'SMALL'; end
+        handles.SQElectrodes = struct('MULTIPLE_IN1', gridType);
+
+        d = questdlg('Display mode:', 'SQ+ Display', ...
+            'Heatmap image', 'Session + map', 'Session (traces)', 'Heatmap image');
+        switch d
+            case 'Session + map',     handles.SQDisplay = 'session_map';
+            case 'Session (traces)',  handles.SQDisplay = 'session_plain';
+            otherwise,                handles.SQDisplay = 'image';
+        end
+        srTarget = '2000';
     else
         handles.nCh = 8;
         handles.vCh = 1:8;
         set(handles.et_chs, 'String', '8');
+        srTarget = '1000';
     end
-    
+
     srList = cellstr(get(handles.pm_sampleRate, 'String'));
-    idxSR = find(strcmp(srList, '1000'), 1);
+    idxSR = find(strcmp(srList, srTarget), 1);
     if isempty(idxSR)
-        srList{end+1} = '1000';
+        srList{end+1} = srTarget;
         set(handles.pm_sampleRate, 'String', srList);
         idxSR = numel(srList);
     end
     set(handles.pm_sampleRate, 'Value', idxSR);
-    
+
     comList = cellstr(get(handles.ComPortType, 'String'));
     idxCOM = find(strcmp(comList, 'COM'), 1);
     if ~isempty(idxCOM), set(handles.ComPortType, 'Value', idxCOM); end

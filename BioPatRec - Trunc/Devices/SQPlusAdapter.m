@@ -2,8 +2,9 @@ classdef SQPlusAdapter < DeviceInterface
     properties
         objSQ
         nCh
+        electrodes = struct()      % MULTIPLE_IN1 = 'BIG' (8x8) | 'SMALL' (13x5)
+        display    = 'image'       % 'image' | 'session_map' | 'session_plain'
     end
-
     methods
         function obj = SQPlusAdapter(objSQ, nCh)
             obj.objSQ = objSQ;
@@ -12,14 +13,12 @@ classdef SQPlusAdapter < DeviceInterface
 
         function start(obj, cfg) %#ok<INUSD>
             global GLOBAL_SQ_OBJ;
-
             % Drop a stale connection or one configured for the other mode
             if ~isempty(GLOBAL_SQ_OBJ) && isvalid(GLOBAL_SQ_OBJ) ...
                     && GLOBAL_SQ_OBJ.nChUsed ~= obj.nCh
                 try GLOBAL_SQ_OBJ.disconnectBTdevice(); catch, end
                 GLOBAL_SQ_OBJ = [];
             end
-
             if isempty(GLOBAL_SQ_OBJ) || ~isvalid(GLOBAL_SQ_OBJ) || isempty(GLOBAL_SQ_OBJ.srv)
                 if obj.nCh == 64
                     fprintf('[SQ] Adapter creating 64-channel Matrix connection...\n');
@@ -30,9 +29,18 @@ classdef SQPlusAdapter < DeviceInterface
             else
                 fprintf('[SQ] Adapter reusing existing hardware connection...\n');
             end
-
             obj.objSQ = GLOBAL_SQ_OBJ;
             obj.objSQ.flushInput();
+        end
+
+        function flush(obj) %#ok<MANU>
+            % Discard data that piled up (countdown, plot setup) so the
+            % next read starts at "now".
+            global GLOBAL_SQ_OBJ;
+            if ~isempty(GLOBAL_SQ_OBJ) && isvalid(GLOBAL_SQ_OBJ) ...
+                    && ~isempty(GLOBAL_SQ_OBJ.srv)
+                GLOBAL_SQ_OBJ.flushInput();
+            end
         end
 
         function data = read(obj, n)
@@ -67,21 +75,24 @@ classdef SQPlusAdapter < DeviceInterface
 
     methods (Static)
         function [adapter, nCh, vCh] = configure(handles)
-            choice = questdlg('Select Sessantaquattro+ Mode:', 'SQ+ Mode', ...
-                '8 Channels (Bipolar)', '64 Channels (Matrix)', '8 Channels (Bipolar)');
-            if isempty(choice), choice = '8 Channels (Bipolar)'; end
-
-            if strcmp(choice, '64 Channels (Matrix)')
-                set(handles.et_chs, 'String', '64');
-                nCh = 64;
-                srTarget = '2000';
+            % The mode / grid / display questions are asked once in
+            % GUI_AFEselection (pm_name_Callback). Here we only read them;
+            % if called without them, ask here.
+            if isfield(handles,'nCh') && ismember(handles.nCh,[8 64])
+                nCh = handles.nCh;
             else
-                set(handles.et_chs, 'String', '8');
-                nCh = 8;
-                srTarget = '1000';
+                choice = questdlg('Select Sessantaquattro+ Mode:', 'SQ+ Mode', ...
+                    '8 Channels (Bipolar)', '64 Channels (Matrix)', '8 Channels (Bipolar)');
+                if strcmp(choice, '64 Channels (Matrix)'), nCh = 64; else, nCh = 8; end
             end
 
-            % Sample rate must match the mode (1000 Hz bipolar / 2000 Hz matrix)
+            if nCh == 64
+                srTarget = '2000';
+            else
+                srTarget = '1000';
+            end
+            set(handles.et_chs, 'String', num2str(nCh));
+
             srList = cellstr(get(handles.pm_sampleRate, 'String'));
             idxSR  = find(strcmp(srList, srTarget), 1);
             if isempty(idxSR)
@@ -97,6 +108,8 @@ classdef SQPlusAdapter < DeviceInterface
 
             vCh = 1:nCh;
             adapter = SQPlusAdapter([], nCh);
+            if isfield(handles,'SQElectrodes'), adapter.electrodes = handles.SQElectrodes; end
+            if isfield(handles,'SQDisplay'),    adapter.display    = handles.SQDisplay;    end
         end
     end
 end

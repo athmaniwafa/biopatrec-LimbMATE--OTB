@@ -1,42 +1,54 @@
-classdef MIA_Acquire < handle
-    properties
-        io
-    end
-    methods
-        function obj = MIA_Acquire(comPort)
-            % Open port at 115200 baud as per your protocol file
-            obj.io = serialport(comPort, 115200);
-            obj.io.configureTerminator('CR');
-            
-            % Send Complete Calibration Command (From your file)
-            writeline(obj.io, '@AK0000000000000*'); 
-            disp('[MIA] Hand connected and calibrated.');
-        end
-        
-        function sendMotor(obj, motorID, direction, speed, position)
-            % direction: '+' or '-'
-            % speed: '00' to '99'
-            % position: '0000' to '0255'
-            if motorID == 1
-                fprintf('[MIA] Commanding Motor 1 (Thumb)\n');
-            elseif motorID == 2
-                fprintf('[MIA] Commanding Motor 2 (Fingers)\n');
-            end
-            cmd = sprintf('@%dS%s%s%s00*', motorID, direction, position, speed);
-            writeline(obj.io, cmd);
-        end
-        
-        function sendGrasp(obj, graspType)
-            % graspType: 'C' (cylindrical), 'P' (pinch), 'L' (lateral)
-            cmd = sprintf('@AG%sA05055000000*', graspType);
-            writeline(obj.io, cmd);
-        end
-        
-        function disconnect(obj)
-            if ~isempty(obj.io)
-                delete(obj.io);
-                disp('[MIA] Hand disconnected.');
-            end
-        end
+% mia_control.m — single-file MIA hand control on COM6
+% '+' close  |  '-' open  |  'q' quit
+
+clear; clc;
+
+%% Connect
+s = serialport('COM6', 115200);
+s.configureTerminator('CR');
+
+% Calibrate
+writeline(s, '@AK0000000000000*');
+pause(2);
+disp('Calibrated. Click window, then press + / - / q.');
+
+%% Send motor command helper (motor 1 = thumb, 2 = fingers)
+send = @(id, dir, spd) writeline(s, sprintf('@%dS%s0000%02d550000*', id, dir, spd));
+
+%% Keyboard window
+fig = figure('Name','MIA: + close / - open / q quit', ...
+             'NumberTitle','off','MenuBar','none','ToolBar','none', ...
+             'Position',[500 400 400 150]);
+uicontrol(fig,'Style','text','FontSize',16, ...
+    'String',{'+   CLOSE hand','-   OPEN hand','q   QUIT'}, ...
+    'Units','normalized','Position',[0.1 0.1 0.8 0.8]);
+
+state.quit = false;
+state.act  = '';
+fig.KeyPressFcn = @(src,evt) setappdata(src,'key',evt.Key);
+
+%% Main loop
+SPEED = 55;
+while ~state.quit && isvalid(fig)
+    k = getappdata(fig,'key');
+    if isempty(k), pause(0.05); continue; end
+    setappdata(fig,'key','');
+
+    switch k
+        case {'add','equal'}           % '+'
+            send(1,'+',SPEED); pause(0.3);
+            send(2,'+',SPEED);
+            disp('+ CLOSE');
+        case {'subtract','hyphen'}     % '-'
+            send(1,'-',SPEED); pause(0.3);
+            send(2,'-',SPEED);
+            disp('- OPEN');
+        case 'q'
+            state.quit = true;
     end
 end
+
+%% Cleanup
+if isvalid(fig), close(fig); end
+delete(s); clear s;
+disp('Done.');

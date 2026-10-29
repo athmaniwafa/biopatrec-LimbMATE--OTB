@@ -1,518 +1,619 @@
-% ---------------------------- Copyright Notice ---------------------------
-% This file is part of BioPatRec © which is open and free software under 
-% the GNU Lesser General Public License (LGPL). See the file "LICENSE" for 
-% the full license governing this code and copyrights.
-%
-% BioPatRec was initially developed by Max J. Ortiz C. at Integrum AB and 
-% Chalmers University of Technology. All authors? contributions must be kept
-% acknowledged below in the section "Updates % Contributors". 
-%
-% Would you like to contribute to science and sum efforts to improve 
-% amputees? quality of life? Join this project! or, send your comments to:
-% maxo@chalmers.se.
-%
-% The entire copyright notice must be kept in this or any source file 
-% linked to BioPatRec. This will ensure communication with all authors and
-% acknowledge contributions here and in the project web page (optional).
-%
-% -------------------------- Function Description -------------------------
-% Function to execute real-time patrec using the offline trained algorithm
-% which information is stored in patRec
-%
-% ------------------------- Updates & Contributors ------------------------
-% [Contributors are welcome to add their email]
-% 2011-07-27 / Max Ortiz  / Creation
-% 2011-08-03 / Max Ortiz  / Separation of "SignalProcessing_RealtimePatRec"
-% 2011-11-17 / Max Ortiz  / Added the motors coupling
-% 2011-12-07 / Nichlas Sander / Added VRE Coupling and VRE commands.
-% 2011-12-07 / Max Ortiz  / Upgrade to Session-based interface for DAQ, the
-%                           prevous version was called RealtimePatRec_Legacy.m
-% 2012-08-13 / Morten Kristoffersen  / Added GUI interface to see and control 
-% 									   the threshold values for the MLP ThOut algorithm.
-% 2012-10-05 / Joel Falk-Dahlin / Changed inputs and outputs of
-%                                 ApplyControl to work with updated version.
-%                                 Removed InitControl since it is
-%                                 performed inside the GUI
-% 2012-10-26 / Joel Falk-Dahlin / Added ApplyProportionalControl
-% 2012-11-06 / Max Ortiz        / Create RealimePatRec_OneShot to concentrate
-%                                 critical routines of realtimepatrec
-% 2012-11-23 / Joel Falk-Dahlin / Moved speeds from handles to patRec,
-%                                 changed VRE to use the new speeds
-% 2013-04-17 / Max Ortiz        / Made independent routines for control of
-%                                 differend devices
-% 2013-06-03 / Max Ortiz        / Addition of necessary routines to control
-%                                 Standard proshetic components (SPC) using wifi.
-% 2014-11-12 / Enzo Mastinu     / Added code for ADS1299 AFE RealTime PatRec
-% 2015-01-20 / Enzo Mastinu     / All this function has been re-organized
-%                                 to be compatible with the functions
-%                                 placed into COMM/AFE folder. For more
-%                                 details read about RecordingSession.m with 
-%                                 other custom devices for BioPatRec_TRE.
-% 2016-02-10 / Max Ortiz        / change the initialization of the NI card
-%                                 to use the vector of channels rather than only the number
-% 2016-04-15 / Julian Maier     / Artificial artifact inseration (Line 268)   
-% 2018-02-23/ James Austin      / Added window overlap as the cycletime for real time
-%                                 pattern recognition implementation from
-%                                 NI devices (replacing tWs for PEEK time). 
-%                               / Added currentDegPerMovLast array to induce program
-%                                 to send a new signal to the motors of an
-%                                 external device whenever either the movement class
-%                                 *or* the velocity changes (i.e. external
-%                                 devices will now work with velocity ramp
-%                                 or other velocity-variant control methods).
-% 20xx-xx-xx / Author  / Comment on update
-
 function handlesX = RealtimePatRec(patRecX, handlesX)
+% Real-time pattern recognition: LimbMATE, SQ+/OTB400 adapter, NI, legacy.
+% Optional Mia hand control (works with any acquisition device).
 
     clear global;
     clear persistent;
 
-    global patRec;
-    global handles;
-    global nTW;
-    global procT;
-    global motorCoupling;
-    global vreCoupling;
-    global pwmIDs;
-    global pwmAs;
-    global pwmBs;
-    global tempData;
-    global outVectorMotorLast;
-    
-    %global data;            % only needed for testing
-    global thresholdGUIData;
-    global outMovs;
-    global tSets;
+    global patRec handles nTW procT motorCoupling vreCoupling TAC;
+    global pwmIDs pwmAs pwmBs tempData outVectorMotorLast currentDegPerMovLast;
+    global thresholdGUIData outMovs tSets;
+    global miaHand miaVoter;
+
+    %% ---- User settings ----
+    miaPort     = 6;       % TEST: hardcoded. Use 'ask' for a remembered port / selection dialog
+    useMia      = true;    % set false to disable Mia completely
+    miaSelfTest = false;   % true: force Close at ~2 s and Open at ~6 s (LimbMATE only)
 
     patRec   = patRecX;
     handles  = handlesX;
     nTW      = 1;
     procT    = [];
     tempData = [];
-    outVectorMotorLast = zeros(patRec.nOuts,1);
+    outMovs  = [];
+    tSets    = [];
+    outVectorMotorLast   = zeros(patRec.nOuts,1);
     currentDegPerMovLast = zeros(patRec.nOuts,1);
-    
+
     % Get needed info from patRec structure
-    if isfield(patRec,'vCh')
-        handles.vCh = patRec.vCh;
-    end
-    sF                  = patRec.sF;
-    nCh                 = length(patRec.nCh);       
-    ComPortType         = patRec.comm;
-    deviceName          = patRec.dev;
-                         
-    % Get sampling time
-    sT = str2double(get(handles.et_testingT,'String'));
-    tW = patRec.tW;                                                        % Time window size
-    tWs = round(tW*sF);                                                           % Time window samples
-    iW = patRec.wOverlap;
+    if isfield(patRec,'vCh'), handles.vCh = patRec.vCh; end
+    sF          = patRec.sF;
+    trainedCh   = patRec.nCh;            % channel indices (or count) used in training
+    nCh         = length(patRec.nCh);
+    ComPortType = patRec.comm;
+    deviceName  = patRec.dev;
+
+    sT  = str2double(get(handles.et_testingT,'String'));
+    tW  = patRec.tW;
+    tWs = round(tW*sF);
+    iW  = patRec.wOverlap;
     iWs = max(1, round(iW*sF));
-    oW = tW-iW;                                                  % Timestep length from window overlap
-    oWs = tWs-iWs;                                                           % Overlap samples
+    oW  = tW - iW;
 
-    % Initialze control algorithms
-    %patRec = InitControl(patRec); % No longer needed, Initialization is done in GUI
+    %% ---- Mia hand (optional, connect + calibrate BEFORE streaming starts) ----
+    miaHand  = [];
+    miaVoter = MiaVote();
+    miaCleanup = []; %#ok<NASGU>
+    if useMia
+        try
+            miaPortName = resolveMiaPort(miaPort, patRec);
 
-    %% Start the connection with Limb-MATE
-    if (strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName, 'LM 3') )
-        % Create object for device and connection
+            if ~isempty(miaPortName) && any(strcmpi(cellstr(serialportlist("all")), miaPortName))
+                fprintf('[Mia] using %s\n', miaPortName);
+                miaHand = MiaHand(miaPortName);
+                miaHand.calibrate();     % blocking ~8 s, must not run while streaming
+                setpref('BioPatRec','MiaPort',miaPortName);   % remember for next time
+                miaCleanup = onCleanup(@cleanupMia);
+            elseif ~isempty(miaPortName)
+                fprintf('[Mia] %s not found, Mia disabled.\n', miaPortName);
+            end
+        catch ME
+            warning('[Mia] disabled: %s', ME.message);
+            cleanupMia();
+        end
+    end
+
+    %% ---- Decide acquisition route ----
+    useAdapter = isSQplus(deviceName) || isOTB400(deviceName);
+    useLM      = isLimbMATE(deviceName);
+    lmCleanup  = []; %#ok<NASGU>
+
+    %% ---- LimbMATE: scan, connect, configure ----
+    if useLM
         objLM = LimbMATE_BioPatRec();
-    
-        % Connect to Bluetooth USB stick
-    %              obj.disconnectBTdevice();
-        ComPortName = patRec.comn;
-        objLM.connectBTdongle(ComPortName);
-    
-        % Find Bluetooth Devices and Connect to BT device with name "LMATE"
-        BTspeed = "2";
-        objLM.connectBTdevice(deviceName{1,1}, BTspeed);
-    
-        % Check MIA connession
-        objLM.enable_MIA_connection(get(handles.cb_MIA,'Value'))
-    end
-    if exist('objLM','var')
+        objLM.connectBTdongle(patRec.comn);
+        objLM.scanDevicesStart();
+        objLM.scanDevicesStop();
+        objLM.getDevicesInfo();
+
+        lmIdx = 0;
+        for k = 1:numel(objLM.BTdevices)
+            nameK = char(objLM.BTdevices(k).DeviceName);
+            if startsWith(upper(nameK),'LM') || startsWith(upper(nameK),'LIMBMATE')
+                lmIdx = k;
+                fprintf('[RealtimePatRec] Auto-picked BT device "%s"\n', nameK);
+                break
+            end
+        end
+        if lmIdx == 0
+            try, delete(objLM.serialObj); catch, end
+            error('RealtimePatRec:LMNotFound', ...
+                  'No LM-prefixed device in scan. Saw: %s', ...
+                  strjoin(arrayfun(@(b) string(char(b.DeviceName)), objLM.BTdevices, 'UniformOutput', false), ', '));
+        end
+        objLM.BTindex = lmIdx;
+        objLM.connectFoundBTmodule();
+        lmCleanup = onCleanup(@() safeStopLM(objLM));   % guarantees disconnect on any error
+        pause(1.5);
+        try, objLM.setSpeedBT("2");     catch ME, warning('setSpeedBT: %s', ME.message); end
+        try, objLM.getDeviceName();     catch ME, warning('getDeviceName: %s', ME.message); end
+        try, objLM.getDeviceFirmware(); catch ME, warning('getDeviceFirmware: %s', ME.message); end
+
+        if isfield(patRec,'gains') && ~isempty(patRec.gains)
+            g = patRec.gains;
+        else
+            g = 2 * ones(1,8);
+        end
+        fprintf('[RealtimePatRec] Forcing sample rate %d Hz, gain %d\n', patRec.sF, g(1));
+        try
+            objLM.setSampleFreqGain(patRec.sF, g);
+        catch ME
+            warning('setSampleFreqGain failed: %s', ME.message);
+        end
+        % Use the same electrode configuration as the recording
+        if isfield(patRec,'config') && ~isempty(patRec.config)
+            try, objLM.setElectrodesConfig(patRec.config); catch, end
+        else
+            try, objLM.setElectrodesConfig("Differential"); catch, end
+        end
+
         handles.objLM = objLM;
-    else
-        handles.objLM = [];
+        fprintf('[RealtimePatRec] LimbMATE connected on %s\n', patRec.comn);
     end
 
-    %% Is threshold (thOut) used?
-    if(isfield(patRec.patRecTrained,'thOut'));
-        %Threshold GUI init
-        thresholdGUI = GUI_Threshold; 
+    %% ---- SQ+ / OTB400 adapter ----
+    if useAdapter
+        afeLocal = struct();
+        afeLocal.name         = deviceName;
+        afeLocal.channels     = nCh;
+        afeLocal.sampleRate   = sF;
+        afeLocal.ComPortType  = ComPortType;
+        afeLocal.plotType     = 'Raw Signal';
+        afeLocal.featureType  = 'MAV';
+        afeLocal.prepare      = 0;
+        afeLocal.compressData = 0;
+        afeLocal.objOT        = [];
+        afeLocal.objSQ        = [];
+        % Release an adapter left open by the recording GUI (the OTB device
+        % cannot be opened twice)
+        if isfield(handles,'adapter') && ~isempty(handles.adapter)
+            try, handles.adapter.disconnect(); catch, end
+        end
+
+        % DeviceFactory only wraps afeSettings.objOT, so real-time must create it
+        % (same device type and electrodes as the recording).
+        if isOTB400(deviceName)
+            if strcmpi(char(deviceName),'OTB400_HD')
+                choice = questdlg('Number of channels on the device (same as recording):', ...
+                                  'OTB400 HD','64','128','64');
+                if isempty(choice), error('RealtimePatRec:OTBCancelled','User cancelled OTB selection.'); end
+                nDev = str2double(choice);
+                [electrodes, ok] = OTB400_SelectElectrodes(nDev);
+                if ~ok, error('RealtimePatRec:OTBCancelled','User cancelled electrode selection.'); end
+                afeLocal.objOT = OT_Acquire('hd', nDev, max(60,sT+10), electrodes);
+            else
+                afeLocal.objOT = OT_Acquire('bipolar', max(8,max(trainedCh)), max(60,sT+10));
+            end
+        elseif isSQplus(deviceName) && isempty(afeLocal.objSQ)
+            warning('[SQ+] afeLocal.objSQ is empty; SQPlusAdapter may have nothing to read from.');
+        end
+
+        handles.adapter = DeviceFactory(deviceName, nCh, sF, handles, afeLocal);
+        adapterCleanup = onCleanup(@() safeStopAdapter(handles.adapter)); %#ok<NASGU>
+
+        % OTB400Adapter.start() is empty and OT_Acquire.getEMG_data_TW_float
+        % errors until the stream is started. startAcquisitionEMG is idempotent.
+        if isOTB400(deviceName)
+            try
+                ot = handles.adapter.objOT;
+                if ~isempty(ot), ot.startAcquisitionEMG(); end
+            catch ME
+                warning('[OTB] start failed: %s', ME.message);
+            end
+        end
+    end
+
+    %% ---- Threshold GUI ----
+    if isfield(patRec.patRecTrained,'thOut')
+        thresholdGUI = GUI_Threshold;
         thresholdGUIData = guidata(thresholdGUI);
-        set(GUI_Threshold,'CloseRequestFcn', 'set(GUI_Threshold, ''Visible'', ''off'')');
+        set(GUI_Threshold,'CloseRequestFcn','set(GUI_Threshold, ''Visible'', ''off'')');
         xpatch = [1 1 0 0];
         ypatch = [0 0 0 0];
-            for i=0:patRec.nOuts-1
-                s = sprintf('movementSelector%d',i);
-                s0 = sprintf('thPatch%d',i);
-                s1 = sprintf('meter%d',i);
-                axes(thresholdGUIData.(s1));
-                handles.(s0) = patch(xpatch,ypatch,'b','EdgeColor','b','EraseMode','normal','visible','on');
-                ylim(thresholdGUIData.(s1), [0 1]);
-                xlim('auto');
-                set(thresholdGUIData.(s),'String',patRec.mov(patRec.indMovIdx));
-                if (size(patRec.mov(patRec.indMovIdx),1) < i+1); 
-                    set(thresholdGUIData.(s),'Value',size(patRec.indMovIdx,2));
-                else
-                    set(thresholdGUIData.(s),'Value',i+1);
-                end
+        for i = 0:patRec.nOuts-1
+            s  = sprintf('movementSelector%d',i);
+            s0 = sprintf('thPatch%d',i);
+            s1 = sprintf('meter%d',i);
+            axes(thresholdGUIData.(s1));
+            handles.(s0) = patch(xpatch,ypatch,'b','EdgeColor','b','EraseMode','normal','visible','on');
+            ylim(thresholdGUIData.(s1),[0 1]);
+            xlim('auto');
+            set(thresholdGUIData.(s),'String',patRec.mov(patRec.indMovIdx));
+            if size(patRec.mov(patRec.indMovIdx),1) < i+1
+                set(thresholdGUIData.(s),'Value',size(patRec.indMovIdx,2));
+            else
+                set(thresholdGUIData.(s),'Value',i+1);
             end
+        end
     end
 
-    %% Is the VRE selected?
+    %% ---- VRE / motor coupling ----
     vreCoupling = 0;
-    if isfield(handles,'vre_Com');  
-        %If there is a vre communication, is it open?
+    if isfield(handles,'vre_Com')
         vreCoupling = strcmp(handles.vre_Com.Status,'open');
     end
-
-    %% Is there an option for coupling with the motors?
-    if isfield(handles,'cb_motorCoupling') %&& ~isfield(handles,'com')
-        motorCoupling = get(handles.cb_motorCoupling,'Value');    
+    if isfield(handles,'cb_motorCoupling')
+        motorCoupling = get(handles.cb_motorCoupling,'Value');
     else
         motorCoupling = 0;
     end
-
-%     % Init variables for hard-coded control (not using objects) %% CHECK
-%     if motorCoupling && ~isfield(handles,'movList')
-%         if deviceID == 1 % Multifunctinal prosthesis with DC motors 
-%             [pwmIDs pwmAs pwmBs] = InitMF_Hand_DC_Hardcoded(handles);        
-%         elseif deviceID == 3  % Standard prosthetic units (wireless)
-% 
-%         end
-%     end
-    
-    % Get connection object for control external robotic devices
     if motorCoupling
         if ~isfield(handles,'Control_obj')
-            set(handles.t_msg,'String','No connection obj found');   
+            set(handles.t_msg,'String','No connection obj found');
             return;
         end
         if ~strcmp(handles.Control_obj.status,'open')
             fopen(handles.Control_obj);
-        end        
+        end
     end
 
-    cData = zeros(iWs,nCh);
-    
-    %%%%% Real Time PatRec with NI DAQ card %%%%%
-    if strcmp (ComPortType, 'NI')
+    cData = zeros(iWs,nCh); %#ok<NASGU>
 
-        % Init SBI
-        sCh = patRec.nCh;                                                  % Vector of channels
-        if strcmp(deviceName, 'Thalmic MyoBand')
-            %CK: init MyoBand
-            s = MyoBandSession(sF, sT, sCh);
+    %%%%% NI DAQ %%%%%
+    if strcmp(ComPortType,'NI')
+        sCh = patRec.nCh;
+        if strcmp(deviceName,'Thalmic MyoBand')
+            s = MyoBandSession(sF,sT,sCh);
         else
-            s = InitSBI_NI(sF,sT,sCh); 
-        end 
-        s.NotifyWhenDataAvailableExceeds = iWs;                            % PEEK time
-        lh = s.addlistener('DataAvailable', @RealtimePatRec_OneShot); 
+            s = InitSBI_NI(sF,sT,sCh);
+        end
+        s.NotifyWhenDataAvailableExceeds = iWs;
+        lh = s.addlistener('DataAvailable',@RealtimePatRec_OneShot);
+        s.startBackground();
+        if ~s.IsDone, s.wait(); end
+        if ~strcmp(deviceName,'Thalmic MyoBand'), delete(lh); end
+        if strcmp(deviceName,'Thalmic MyoBand'), MyoClient('StopSampling'); end
 
-        % Start DAQ
-        s.startBackground();                                               % Run in the backgroud
+    %%%%% LimbMATE %%%%%
+    elseif useLM
+        if tWs <= 100
+            samples_tw_encoded = uint8(1);
+        elseif tWs <= 200
+            samples_tw_encoded = uint8(2);
+        else
+            error('RealtimePatRec:TWsTooLarge', ...
+                  'LimbMATE firmware supports max 200 samples per TW; tWs = %d', tWs);
+        end
+        active_channels_encoded    = uint8(255);
+        samples_tw_encoded         = samples_tw_encoded;
+        samples_tw_overlap_encoded = uint8(0);
 
-        if ~s.IsDone                                                       % check if is done
-            s.wait();
+        try
+            handles.objLM.startAcquisitionEMG(1, active_channels_encoded, ...
+                samples_tw_encoded, samples_tw_overlap_encoded);
+        catch ME
+            error('RealtimePatRec:LMStart','startAcquisitionEMG failed: %s',ME.message);
         end
-        
-        
-        if ~strcmp(deviceName, 'Thalmic MyoBand')
-            delete(lh);
+
+        handles.objLM.packages_per_TW           = tWs / 5;
+        handles.objLM.packages_per_TW_increment = tWs / 5;
+        fprintf('[RealtimePatRec] packages_per_TW = %d, tWs = %d, trainedCh = %s\n', ...
+                handles.objLM.packages_per_TW, tWs, mat2str(trainedCh));
+
+        % Each iteration reads a full window of tWs samples (tW seconds)
+        max_num_iteration = floor(sT / tW);
+
+        for timeWindowNr = 1:max_num_iteration
+            raw = handles.objLM.getEMG_data_TW_float(tWs);   % [8 x tWs]
+
+            % Only the channel(s) the model was trained on
+            if size(raw,1) >= max(trainedCh)
+                cData = raw(trainedCh,:)';                   % [tWs x numel(trainedCh)]
+            else
+                cData = raw(1:nCh,:)';
+            end
+
+            if mod(timeWindowNr,10) == 0
+                fprintf('[diag] win %3d\n  mean=%s\n  std =%s\n', timeWindowNr, ...
+                    mat2str(round(mean(raw,2)'),5), mat2str(round(std(raw,0,2)',1),5));
+            end
+
+            acquireEvent.Data = cData;
+            RealtimePatRec_OneShot(0,acquireEvent);
+
+            if miaSelfTest && ~isempty(miaHand)
+                if timeWindowNr == 10, miaHand.act('Close Hand'); end
+                if timeWindowNr == 30, miaHand.act('Open Hand');  end
+            end
         end
-        %CK: Stop sampling from MyoBand
-        if strcmp(deviceName, 'Thalmic MyoBand')
-            MyoClient('StopSampling');
+
+        % Flush leftover frames so the stop reply is not confused with EMG data
+        try, flush(handles.objLM.serialObj,"input"); catch, end
+        try, handles.objLM.stopAcquisitionEMG(); catch, end
+
+        try
+            integrity = handles.objLM.getRecordingIntegrity();
+            if isfield(integrity,'replacedSamples') && integrity.replacedSamples > 0
+                warning('LM:ReplacedSamples', ...
+                    'LimbMATE: %d samples replaced during this session.', ...
+                    integrity.replacedSamples);
+            end
+        catch
         end
-    %%%%% Real Time PatRec with other custom device %%%%%   
+
+    %%%%% SQ+ / OTB400 adapter %%%%%
+    elseif useAdapter
+        if iW == 0
+            max_num_iteration = sT - oW;
+        else
+            max_num_iteration = (sT - oW) / iW;
+        end
+        for timeWindowNr = 1:max_num_iteration
+            cData = handles.adapter.read(iWs);
+            % The device returns all channels (8, 64 or 128); keep only the trained ones
+            if size(cData,2) > numel(trainedCh) && max(trainedCh) <= size(cData,2)
+                cData = cData(:,trainedCh);
+            end
+            acquireEvent.Data = cData;
+            RealtimePatRec_OneShot(0,acquireEvent);
+        end
+        try, handles.adapter.stop();       catch, end
+        try, handles.adapter.disconnect(); catch, end
+
+    %%%%% Legacy %%%%%
     else
-
-        % Prepare handles for next function calls
         handles.deviceName  = deviceName;
         handles.ComPortType = ComPortType;
-        if strcmp (ComPortType, 'COM')
+        if strcmp(ComPortType,'COM')
             handles.ComPortName = patRec.comn;
         end
-        handles.sF          = sF;
-        handles.sT          = sT;
-        handles.nCh         = nCh;
-        handles.sTall       = sT;
+        handles.sF    = sF;
+        handles.sT    = sT;
+        handles.nCh   = nCh;
+        handles.sTall = sT;
 
-        % Delete connection object
         if isfield(handles,'obj')
             delete(handles.obj);
         end
-
-        % Open the bipolar adapter before using the shared acquisition path.
-        if strcmp(deviceName, 'OTB400_bipolar')
-            handles.objOT = OT_Acquire('bipolar', max(patRec.nCh), max(60,sT+10));
-            otCleanup = onCleanup(@() handles.objOT.disconnectBTdevice());
+        if strcmp(deviceName,'OTB400_bipolar')
+            handles.objOT = OT_Acquire('bipolar',max(patRec.nCh),max(60,sT+10));
+            otCleanup = onCleanup(@() handles.objOT.disconnectBTdevice()); %#ok<NASGU>
         end
 
-        % Connect the chosen device, it returns the connection object
         obj = ConnectDevice(handles);
         handles.obj = obj;
+        handles = SetDeviceStartAcquisition(handles,obj);
 
-        % Set the selected device and Start the acquisition
-        handles = SetDeviceStartAcquisition(handles, obj);
-
-        % Deal when no overlap is selected
-        if (iW == 0)
-            max_num_iteration = sT-oW;
+        if iW == 0
+            max_num_iteration = sT - oW;
         else
-            max_num_iteration = (sT-oW)/iW;
+            max_num_iteration = (sT - oW) / iW;
         end
         for timeWindowNr = 1:max_num_iteration
-
-            if strcmp(deviceName, 'OTB400_bipolar')
+            if strcmp(deviceName,'OTB400_bipolar')
                 cData = obj.getEMG_data_TW_float(iWs);
                 cData = cData(:,patRec.nCh);
             else
-                cData = Acquire_tWs(deviceName, obj, nCh, iWs);
-            end            % acquire a new time window of samples
-            acquireEvent.Data = cData;
-            RealtimePatRec_OneShot(0, acquireEvent);                       
-        end
-
-        % Stop acquisition
-        StopAcquisition(deviceName, obj);
-    end
-
-    % Disconnect the LimbMate Device
-    if strcmp(deviceName, 'LM 1') || strcmp(deviceName, 'LM 2') || strcmp(deviceName, 'LM 3')
-        l1 = length(handles.obj.temp_streamed_control);
-        LM_outMovs = zeros(1, l1);
-        for i=1:l1
-            LM_outMovs(i) = handles.obj.temp_streamed_control(i).outIndex;
-            if  LM_outMovs(i) == 0
-                LM_outMovs(i) = patRec.nM;
+                cData = Acquire_tWs(deviceName,obj,nCh,iWs);
             end
+            acquireEvent.Data = cData;
+            RealtimePatRec_OneShot(0,acquireEvent);
         end
-        acc = sum(outMovs==LM_outMovs(1:end-4+1))/(l1-3);
-        figure, 
-        plot(1:l1-3, outMovs, 'go', 'LineWidth', 2), hold on, plot(1:l1-3, LM_outMovs(1:l1-3), 'bo', 'LineWidth', 2), legend('PC','MCU'), title(['Comparison Classification PC-LM - Mutual ACC:', num2str(acc)])
-        
-        % Disable MIA connession
-        objLM.enable_MIA_connection(0)
-        objLM.disconnectBTdevice();
-        delete(objLM.serialObj);
-        handles.objLM = [];
+        StopAcquisition(deviceName,obj);
     end
-    
-    %Stop motors
+
+    %% ---- Stop motors ----
     if motorCoupling
         if ~strcmp(handles.Control_obj.status,'open')
             fopen(handles.Control_obj);
-        end   
-        if(isfield(handles,'movList')) % Is the movement obj used?
-            for i=1 : length(handles.movList)
-                [handles.motors, ~] = MotorsOff(handles.Control_obj, handles.movList(i), handles.motors);
+        end
+        if isfield(handles,'movList')
+            for i = 1:length(handles.movList)
+                [handles.motors,~] = MotorsOff(handles.Control_obj,handles.movList(i),handles.motors);
             end
-        else % from hardcoded GUI GUI_TestPatRec
-            ActivateMotors(handles.com, pwmIDs, pwmAs, pwmBs, 0);
+        else
+            ActivateMotors(handles.com,pwmIDs,pwmAs,pwmBs,0);
         end
     end
 
-    % Write the average processing time
-    set(handles.et_avgProcTime,'String',num2str(mean(procT(2:end))));
+    if numel(procT) > 1
+        set(handles.et_avgProcTime,'String',num2str(mean(procT(2:end))));
+    end
 
+    if isfield(patRec.patRecTrained,'thOut')
+        for i = 0:patRec.nOuts-1
+            s0 = sprintf('thPatch%d',i);
+            set(handles.(s0),'YData',[0 0 0 0]);
+        end
+    end
+
+    % Release Mia (onCleanup also covers error paths); hand opens in delete()
+    cleanupMia();
+
+    % Do not hand a deleted LimbMATE object back to the GUI
+    if isfield(handles,'objLM'), handles.objLM = []; end
     handlesX = handles;
 
-    %Reset Threshold GUI 
-    if(isfield(patRec.patRecTrained,'thOut'));
-        for i=0:patRec.nOuts-1
-            s0 = sprintf('thPatch%d',i);
-            set(handles.(s0), 'YData', [0 0 0 0]);
-            %delete(GUI_Threshold);
-        end
-    end
-
-    % Report actual predictions separately from processing-time statistics.
+    %% ---- Report ----
     fprintf('\n--- Real-time PatRec: predicted windows ---\n');
     for movementIndex = 1:numel(patRec.mov)
-        fprintf('%s: %d\n', char(patRec.mov(movementIndex)), ...
-            nnz(outMovs == movementIndex));
+        fprintf('%s: %d\n', char(patRec.mov(movementIndex)), nnz(outMovs == movementIndex));
     end
     fprintf('VRE connected during test: %d\n', vreCoupling);
     fprintf('Movement degrees: ');
     disp(patRec.control.currentDegPerMov);
 
-    %Plot processing time
-    figure();
-    hist(procT(2:end));
-    set(handles.pb_RealtimePatRec, 'Enable', 'on');   
-
-    
-
+    if numel(procT) > 1
+        figure();
+        hist(procT(2:end));
+    end
+    set(handles.pb_RealtimePatRec,'Enable','on');
 end
 
 
-function RealtimePatRec_OneShot(src,event)
+function RealtimePatRec_OneShot(src,event) %#ok<INUSL>
 
-    global patRec;
-    global nTW;
-    global procT;
-    global motorCoupling;
-    global vreCoupling;
-    global handles;
-    global TAC;
-    global pwmIDs;
-    global pwmAs;
-    global pwmBs;    
-    global tempData;
-    global outVectorMotorLast;
-    global currentDegPerMovLast; 
-	global thresholdGUIData;
-    global outMovs;
-    global tSets;
-    
+    global patRec nTW procT motorCoupling vreCoupling handles TAC;
+    global pwmIDs pwmAs pwmBs tempData outVectorMotorLast currentDegPerMovLast;
+    global thresholdGUIData outMovs tSets miaHand miaVoter;
 
-    %Keep saving all recorded data
     tempData = [tempData; event.Data];
-    
-    %Output vector
     outVectorMotor = zeros(patRec.nOuts,1);
-    
-    %Only considered the data once it has at least the size of time window
+    outChanged = [];
+
     if size(tempData,1) >= round(patRec.sF*patRec.tW)
-		
-		% Add artifact if required
+
         if isfield(patRec,'addArtifact')
-            timeLength=str2double(handles.et_testingT.String);
+            timeLength = str2double(handles.et_testingT.String);
             tempDataArt = AddArtifactRealtime(tempData,timeLength);
             tData = tempDataArt(end-round(patRec.sF*patRec.tW)+1:end,:);
-        else % Copy the temporal data to the test data
+        else
             tData = tempData(end-round(patRec.sF*patRec.tW)+1:end,:);
         end
 
-        % Start of processing time
         procTimeS = tic;
 
-        % General routine for RealtimePatRec
-        [outMov outVector tSet patRec handles] = OneShotRealtimePatRec(tData, patRec, handles, thresholdGUIData);
-        outMovs(nTW) = outMov;
+        [outMov, outVector, tSet, patRec, handles] = OneShotRealtimePatRec(tData,patRec,handles,thresholdGUIData); %#ok<ASGLU>
+        outMovs(nTW) = outMov(1);
         tSets(nTW,:) = tSet;
-        % GUI and control Updates
-        
-        % Game control        
+
+        % --- Mia: majority vote -> command (Rest and unknown are ignored) ---
+        if ~isempty(miaHand) && isvalid(miaHand) && ~isempty(outMov)
+            cmd = '';
+            if outMov(1) ~= 0
+                cmd = char(patRec.mov{outMov(1)});
+            end
+            v = miaVoter.push(cmd);
+            if ~isempty(v) && ~strcmp(v,'Rest')
+                try
+                    miaHand.act(v);
+                catch ME
+                    warning('MiaHand error: %s',ME.message);
+                end
+            end
+        end
+
         if get(handles.cb_keys,'Value') && outMov(1) ~= 0
             keys = zeros(patRec.nM,1);
             keys(outMov) = 1;
             savedKeys = [];
-            if isfield(handles,'savedKeys')
-               savedKeys = handles.savedKeys; 
-            end
+            if isfield(handles,'savedKeys'), savedKeys = handles.savedKeys; end
             SendKeys(keys,savedKeys);
         end
-        
-        
-        % Robot control
-        if get(handles.cb_controls,'Value') &&outMov(1) ~=0
+
+        if get(handles.cb_controls,'Value') && outMov(1) ~= 0
             controls = zeros(patRec.nM,1);
             controls(outMov) = 1;
             savedControls = [];
-            if isfield(handles,'savedControls')
-               savedControls = handles.savedControls; 
-            end
+            if isfield(handles,'savedControls'), savedControls = handles.savedControls; end
             SendControls(controls,savedControls);
         end
-                
-        % Send vector to the motors
-        if(isfield(handles,'movList'))
+
+        if isfield(handles,'movList')
             if motorCoupling
-                % Update outvectorMotor
                 outVectorMotor(outMov) = 1;
-                % Check if the state has change
-                outChanged = find(xor(outVectorMotor, outVectorMotorLast));
-                % Check if the velocity has changed by finding non-zero
-                % differences between current velocity and previous
-                % velocity (currentDegPerMovLast)
+                outChanged = find(xor(outVectorMotor,outVectorMotorLast));
                 speedChanged = find(transpose(patRec.control.currentDegPerMov) - currentDegPerMovLast);
-                outChanged = union(outChanged, speedChanged);
-                % Only send information to the motors that have changed state
-                for i = 1 : size(outChanged,1)
+                outChanged = union(outChanged,speedChanged);
+                for i = 1:size(outChanged,1)
                     if outVectorMotor(outChanged(i))
-                        [handles.motors, ~] = MotorsOn(handles.Control_obj, handles.movList(outChanged(i)), handles.motors, patRec.control.currentDegPerMov(outChanged(i)));
+                        [handles.motors,~] = MotorsOn(handles.Control_obj,handles.movList(outChanged(i)),handles.motors,patRec.control.currentDegPerMov(outChanged(i)));
                     else
-                        [handles.motors, ~] = MotorsOff(handles.Control_obj, handles.movList(outChanged(i)), handles.motors);
+                        [handles.motors,~] = MotorsOff(handles.Control_obj,handles.movList(outChanged(i)),handles.motors);
                     end
-                end    
-            end  
-            
-            % VRE
+                end
+            end
+
             if vreCoupling
                 for i = 1:length(outMov)
                     speed = patRec.control.currentDegPerMov(outMov(i));
                     perfMov = handles.movList(outMov(i));
-                    if VREActivation(handles.vre_Com, speed, [], perfMov.idVRE, perfMov.vreDir, get(handles.cb_moveTAC,'Value'))
-                       TAC.acktimes = TAC.acktimes + 1; 
+                    if VREActivation(handles.vre_Com,speed,[],perfMov.idVRE,perfMov.vreDir,get(handles.cb_moveTAC,'Value'))
+                        TAC.acktimes = TAC.acktimes + 1;
                     end
                 end
             end
-        else % alternative way for motor control (hard-coded)
+        else
             if motorCoupling
-                ActivateMotors(handles.com, pwmIDs, pwmAs, pwmBs, outMov);
+                ActivateMotors(handles.com,pwmIDs,pwmAs,pwmBs,outMov);
             end
 
             if vreCoupling
                 dof = round(outMov/2);
                 dofs = [9,7,8,0,10];
                 dir = mod(outMov,2);
-
-                if (dof == 1 && dir == 1)
-                   dof = 5; 
+                if dof == 1 && dir == 1
+                    dof = 5;
                 end
-
-               if (dir == 1)
-                  dir = 0;
-               else
-                  dir = 1;
-               end           
-
-                if VREActivation(handles.vre_Com, 25, [], dofs(dof), dir, get(handles.cb_moveTAC,'Value')) == 1
-                   % TAC Test Completed
-                   TAC.ackTimes = TAC.ackTimes + 1;
+                if dir == 1
+                    dir = 0;
+                else
+                    dir = 1;
+                end
+                if VREActivation(handles.vre_Com,25,[],dofs(dof),dir,get(handles.cb_moveTAC,'Value')) == 1
+                    TAC.ackTimes = TAC.ackTimes + 1;
                 end
             end
         end
 
-        % Next cycle
         nTW = nTW + 1;
         outVectorMotorLast = outVectorMotor;
         currentDegPerMovLast = transpose(patRec.control.currentDegPerMov);
-        % Finish of processing time
         procT(nTW) = toc(procTimeS);
-        
-        % quick and dirty patch to keep the servos moving
-        % this is provisional
-        if motorCoupling
-            for i = 1 : size(outChanged,1)
+
+        if motorCoupling && isfield(handles,'movList')
+            for i = 1:size(outChanged,1)
                 if or(handles.movList(outChanged(i)).motor == 8, ...
-                   handles.movList(outChanged(i)).motor == 7)     
+                      handles.movList(outChanged(i)).motor == 7)
                     outVectorMotorLast(outChanged(i)) = 0;
                 end
-            end        
+            end
         end
-        
-        
     end
- end
+end
 
- function plotDataTest(src,event)
+
+function name = resolveMiaPort(setting, patRec)
+    % Returns the Mia serial port name, or '' to disable Mia.
+    % setting: number (6), name ('COM6'), or 'ask' / 'auto'.
+    name = '';
+    if isnumeric(setting) && ~isempty(setting)
+        name = sprintf('COM%d', setting);
+        return
+    end
+    setting = char(setting);
+    if ~any(strcmpi(setting, {'ask','auto'}))
+        name = setting;
+        return
+    end
+
+    % Free serial ports, without the EMG device's own port
+    ports = cellstr(serialportlist("available"));
+    if isfield(patRec,'comn') && ~isempty(patRec.comn)
+        ports = ports(~strcmpi(ports, char(patRec.comn)));
+    end
+    if isempty(ports)
+        fprintf('[Mia] no free serial port found. Mia disabled.\n');
+        return
+    end
+
+    % Port that worked last time on this machine
+    if ispref('BioPatRec','MiaPort')
+        saved = getpref('BioPatRec','MiaPort');
+        if any(strcmpi(ports, saved))
+            name = saved;
+            return
+        end
+    end
+
+    % Otherwise let the user choose (once; remembered after a successful connection)
+    items = [ports(:); {'No Mia hand'}];
+    [idx, ok] = listdlg('PromptString','Select the Mia hand serial port:', ...
+        'SelectionMode','single','ListString',items,'ListSize',[260 120]);
+    if ok && idx <= numel(ports)
+        name = ports{idx};
+    end
+end
+
+
+function cleanupMia()
+    global miaHand
+    try
+        if ~isempty(miaHand) && isvalid(miaHand)
+            delete(miaHand);    % MiaHand.delete sends the Open command
+        end
+    catch
+    end
+    miaHand = [];
+end
+
+
+function safeStopAdapter(a)
+    try, a.stop();       catch, end
+    try, a.disconnect(); catch, end
+end
+
+
+function safeStopLM(objLM)
+    try
+        if ~isempty(objLM) && isvalid(objLM) && isprop(objLM,'emg_acquisition') && objLM.emg_acquisition
+            objLM.stopAcquisitionEMG();
+        end
+    catch
+    end
+    try, objLM.disconnectBTdevice(); catch, end
+    try, delete(objLM.serialObj);    catch, end
+end
+
+
+function plotDataTest(src,event) %#ok<DEFNU,INUSL>
     persistent tempData;
-    global data 
-    if(isempty(tempData))
-         tempData = [];
-         figure();
-     end
-     plot(event.TimeStamps, event.Data)
-     tempData = [tempData;event.Data];
-     data = tempData;
- end
-
-
-
-
-
+    global data
+    if isempty(tempData)
+        tempData = [];
+        figure();
+    end
+    plot(event.TimeStamps,event.Data)
+    tempData = [tempData; event.Data];
+    data = tempData;
+end

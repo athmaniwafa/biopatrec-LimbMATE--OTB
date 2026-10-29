@@ -666,6 +666,8 @@ function showChannelNumbers(hObject)
     end
 
 %% Recording functions
+% Replace the whole existing "startRecording" function in
+% GUI_Recordings_Image.m with this one.
 function startRecording(handles, afeSettings)
     % Capture focus
     figure(handles.figure1);
@@ -675,11 +677,6 @@ function startRecording(handles, afeSettings)
     sF           = afeSettings.sampleRate;
     deviceName   = afeSettings.name;
     ComPortType  = afeSettings.ComPortType;
-    if isfield(afeSettings,'compressData')
-        compressData = afeSettings.compressData;
-    else
-        compressData = 0;
-    end
     if strcmp(ComPortType, 'COM')
         ComPortName = afeSettings.ComPortName;  
     end
@@ -691,6 +688,19 @@ function startRecording(handles, afeSettings)
         handles.ComPortName = ComPortName;     
     end
     handles.deviceName  = deviceName;
+
+    % --- SQ+ matrix: install the HD map (8x8 BIG / 13x5 SMALL) ---
+    sqHeatmap = false;
+    if isSQplus(deviceName) && nCh == 64 && isfield(afeSettings,'OTB400Electrodes')
+        sqHeatmap = true;
+        el = afeSettings.OTB400Electrodes;
+        OTB400_ChannelMap('install', handles.figure1, handles.a_t0, 64, el);
+        if strcmp(el.MULTIPLE_IN1,'BIG')
+            set(handles.et_rows,'String','8');  set(handles.et_columns,'String','8');
+        else
+            set(handles.et_rows,'String','13'); set(handles.et_columns,'String','5');
+        end
+    end
     
     % Get recording options
     live = get(handles.cb_live,'Value');
@@ -736,12 +746,12 @@ function startRecording(handles, afeSettings)
         drawnow;
     end
 
-     % --- START THE HARDWARE ---
+    % --- START THE HARDWARE ---
     dev = afeSettings.adapter;
     dev.start(afeSettings);
-    
-    % --- FLUSH THE BUFFER AFTER THE USER CLICKS OK ---
     pause(0.2);
+    % Discard anything that piled up so the plot starts at "now"
+    if ismethod(dev,'flush'), dev.flush(); end
 
     % Collect data
     if ~cont % Non-continuous mode
@@ -771,7 +781,7 @@ function startRecording(handles, afeSettings)
         cDataAll = [];
         while ~get(handles.pb_disconnect, 'UserData') 
             cData = dev.read(tWs);
-            cDataAll = [cDataAll; cData];
+            cDataAll = [cDataAll; cData]; %#ok<AGROW>
             if live
                 previewTw(handles.a_t0,cData, rows, cols);
             end
@@ -792,6 +802,11 @@ function startRecording(handles, afeSettings)
         handles.recSession.deviceName = char(deviceName);
         handles.recSession.OTB400VisibleChannels = ...
             OTB400_ChannelMap('mask',handles.figure1);
+    elseif sqHeatmap
+        handles.recSession.OTB400Electrodes = afeSettings.OTB400Electrodes;
+        handles.recSession.deviceName = char(deviceName);
+        handles.recSession.OTB400VisibleChannels = ...
+            OTB400_ChannelMap('mask',handles.figure1);
     end
     guidata(handles.figure1, handles);
 
@@ -799,7 +814,6 @@ function startRecording(handles, afeSettings)
     
     set(handles.t_msg, 'String', 'Recording finished!');
     setNeedsUpdate(handles.figure1);
-
 %% Movie playback functions
 function preprocessMovie(hObject)
     % Get handles structure

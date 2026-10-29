@@ -1,40 +1,40 @@
 classdef Sessantaquattro_Acquire < handle
     % Sessantaquattro+ acquisition over TCP (PC = server, device = client).
-    % Uses tcpserver (R2020b+). Supports both modes in one class:
+    % Uses tcpserver (R2020b+).
     %
-    %   nCh = 8  : Bipolar, 1000 Hz, 12 channels streamed by the hardware
-    %   nCh = 64 : Matrix (monopolar), 2000 Hz, 72 channels streamed
-    %              ch 1-64 bio | 65-66 AUX | 67-70 IMU | 71 accessory | 72 counter
+    %   nCh = 8  : Bipolar (16 electrodes -> 8 channels), 1000 Hz, 16 words
+    %              1-8 EMG | 9-10 AUX | 11-14 IMU | 15 accessory | 16 counter
+    %              (NCH = 1; counter position must be verified: it must
+    %               increase by 1 per sample, see the debug print)
+    %   nCh = 64 : Matrix (monopolar), 2000 Hz, 72 words
+    %              1-64 bio | 65-66 AUX | 67-70 IMU | 71 accessory | 72 counter
     %
-    % Samples are 16 bit big endian. The 16-bit command word is
+    % Samples are 16 bit big endian. Command word:
     %   GO + REC*2 + TRIG*4 + EXTEN*16 + HPF*64 + HRES*128 + MODE*256
     %      + NCH*2048 + FSAMP*8192
-    % Matrix start = 0x5841 (58 41), stop = 0x5840 (58 40): this is the same
-    % word with MODE=0, NCH=3, FSAMP=2 (2000 Hz).
-    % Bipolar start = 0x2141 (33 65), stop = 0x2140: MODE=1, NCH=0, FSAMP=1 (1000 Hz).
     properties
-        srv                    % tcpserver object
+        srv
         Fs      = 1000
-        nChHW   = 12           % channels streamed by the hardware (12 or 72)
-        nChUsed = 8            % 8 or 64
+        nChHW   = 16
+        nChUsed = 8
         port    = 45454
 
         stopped = false
         started = false
 
-        ConvFact = 0.0002861   % mV per LSB (286.1 nV, manual 8.2)
+        ConvFact = 0.0002861        % mV per LSB (286.1 nV)
 
-        startBytes = uint8([0 0])   % command bytes for start
-        stopBytes  = uint8([0 0])   % command bytes for stop
-        checkCounter = true         % use last channel (sample counter) for loss detection
+        startBytes = uint8([0 0])
+        stopBytes  = uint8([0 0])
+        checkCounter = true
 
-        leftover    = zeros(0,1,"uint8")    % incomplete frame bytes
-        sampleBuf   = zeros(0,8,"single")   % decoded samples not yet delivered
-        lastCnt     = []                    % last sample counter value
-        lostSamples = 0                     % samples lost (counter channel)
-        dbgCalls    = 0                     % number of blocks delivered (debug prints)
-        dbgFrame    = []                    % first decoded frame, raw values
-        dbgLast     = []                    % most recent decoded frame, raw values
+        leftover    = zeros(0,1,"uint8")
+        sampleBuf   = zeros(0,8,"single")
+        lastCnt     = []
+        lostSamples = 0
+        dbgCalls    = 0
+        dbgLast     = []
+        restartCount = 0
     end
 
     methods
@@ -52,22 +52,16 @@ classdef Sessantaquattro_Acquire < handle
             obj.nChUsed   = nCh;
             obj.sampleBuf = zeros(0, nCh, "single");
 
-            % ---- Mode-dependent hardware configuration ----
             if nCh == 64
-                obj.nChHW = 72;
-                obj.Fs    = 2000;
-                MODE = 0;  NCH = 3;  FSAMP = 2;     % monopolar matrix, 2000 Hz
-                obj.checkCounter = true;
+                obj.nChHW = 72;  obj.Fs = 2000;
+                MODE = 0;  NCH = 3;  FSAMP = 2;
                 modeName = 'Matrix 64ch, 2000 Hz';
             else
-                obj.nChHW = 12;
-                obj.Fs    = 1000;
-                MODE = 1;  NCH = 0;  FSAMP = 1;     % bipolar 8ch, 1000 Hz
-                % Set to true if the last channel (12) is confirmed to be the
-                % sample counter in bipolar mode; false avoids false warnings.
-                obj.checkCounter = false;
-                modeName = 'Bipolar 8ch, 1000 Hz';
+                obj.nChHW = 16;  obj.Fs = 1000;
+                MODE = 1;  NCH = 1;  FSAMP = 1;     % NCH=1 -> 8 bipolar channels
+                modeName = 'Bipolar 8ch (16 electrodes), 1000 Hz';
             end
+            obj.checkCounter = true;
             obj.startBytes = Sessantaquattro_Acquire.cmdBytes(1, MODE, NCH, FSAMP);
             obj.stopBytes  = Sessantaquattro_Acquire.cmdBytes(0, MODE, NCH, FSAMP);
 
@@ -92,7 +86,6 @@ classdef Sessantaquattro_Acquire < handle
             end
             fprintf('[SQ] Device connected.\n');
 
-            % Start command right after connection (no pause, no byte dropping).
             write(obj.srv, obj.startBytes, "uint8");
             fprintf('[SQ] Start command sent.\n');
             obj.started = true;
@@ -104,8 +97,7 @@ classdef Sessantaquattro_Acquire < handle
         end
 
         function flushInput(obj)
-            % Discard data received so far WITHOUT breaking frame alignment:
-            % only whole frames are dropped, the incomplete tail is kept.
+            % Drop whole frames only, keep the incomplete tail (alignment).
             fb = 2*obj.nChHW;
             n  = obj.srv.NumBytesAvailable;
             if n > 0
@@ -118,8 +110,7 @@ classdef Sessantaquattro_Acquire < handle
         end
 
         function block = getEMG_data_TW_float(obj, N)
-            % Returns exactly N consecutive samples [N x nChUsed] in mV.
-            % Samples beyond N stay in the FIFO for the next call (no gaps).
+            % Exactly N consecutive samples [N x nChUsed] in mV.
             if nargin < 2, N = 100; end
 
             t0 = tic;
@@ -127,28 +118,31 @@ classdef Sessantaquattro_Acquire < handle
                 obj.pullFrames();
                 if size(obj.sampleBuf,1) >= N, break; end
                 pause(0.002);
-                if toc(t0) > N/obj.Fs + 5
-                    error('SQ: timeout, only %d/%d samples received.', ...
-                          size(obj.sampleBuf,1), N);
+                if toc(t0) > N/obj.Fs + 3
+                    if obj.restartCount < 2
+                        warning('SQ:stall', ['Stream stalled (%d/%d samples). ' ...
+                                'Restarting acquisition: a gap will be in the data.'], ...
+                                size(obj.sampleBuf,1), N);
+                        obj.restartStream();
+                        t0 = tic;
+                    else
+                        error('SQ: timeout, only %d/%d samples received.', ...
+                              size(obj.sampleBuf,1), N);
+                    end
                 end
             end
 
             block = obj.sampleBuf(1:N, :);
             obj.sampleBuf(1:N, :) = [];
 
-            if obj.dbgCalls < 5
+            if obj.dbgCalls < 3
                 obj.dbgCalls = obj.dbgCalls + 1;
                 m = mean(abs(block), 1);
                 fprintf(['[SQ] block %d: %d x %d | mean|x| min/med/max = ' ...
-                         '%.5f / %.5f / %.5f mV | flat ch: %d | identical to ch1: %d\n'], ...
-                        obj.dbgCalls, size(block,1), size(block,2), min(m), median(m), max(m), ...
-                        sum(std(block,0,1) == 0), sum(all(abs(block - block(:,1)) < 1e-6, 1)));
-                if obj.dbgCalls == 1 && ~isempty(obj.dbgFrame)
-                    k = min(8, obj.nChUsed);
-                    fprintf('[SQ] first frame, ch 1-%d raw : %s\n', k, mat2str(obj.dbgFrame(1:k)'));
-                    fprintf('[SQ] first frame, ch %d-%d raw : %s  (%d = counter)\n', ...
-                            obj.nChHW-7, obj.nChHW, mat2str(obj.dbgFrame(obj.nChHW-7:obj.nChHW)'), obj.nChHW);
-                end
+                         '%.5f / %.5f / %.5f mV | last counter word(%d) = %d\n'], ...
+                        obj.dbgCalls, size(block,1), size(block,2), ...
+                        min(m), median(m), max(m), obj.nChHW, ...
+                        obj.dbgLast(obj.nChHW));
             end
 
             if size(obj.sampleBuf,1) > 5*obj.Fs
@@ -172,7 +166,7 @@ classdef Sessantaquattro_Acquire < handle
             if isempty(obj.srv), return; end
             try obj.stopAcquisitionEMG(); catch, end
             pause(0.2);
-            obj.srv       = [];                % deleting tcpserver closes the socket
+            obj.srv       = [];
             obj.leftover  = zeros(0,1,"uint8");
             obj.sampleBuf = zeros(0, obj.nChUsed, "single");
             obj.started = false;
@@ -182,6 +176,21 @@ classdef Sessantaquattro_Acquire < handle
     end
 
     methods (Access = private)
+        function restartStream(obj)
+            obj.restartCount = obj.restartCount + 1;
+            try write(obj.srv, obj.stopBytes, "uint8"); catch, end
+            pause(0.3);
+            try
+                n = obj.srv.NumBytesAvailable;
+                if n > 0, read(obj.srv, n, "uint8"); end
+            catch
+            end
+            obj.leftover  = zeros(0,1,"uint8");
+            obj.lastCnt   = [];
+            write(obj.srv, obj.startBytes, "uint8");
+            fprintf('[SQ] Stream restarted (%d).\n', obj.restartCount);
+        end
+
         function pullFrames(obj)
             fb = 2*obj.nChHW;
             n  = obj.srv.NumBytesAvailable;
@@ -193,13 +202,10 @@ classdef Sessantaquattro_Acquire < handle
             if nFr < 1, return; end
 
             b = double(reshape(data(1:nFr*fb), fb, nFr));
-            U = b(1:2:end,:)*256 + b(2:2:end,:);          % unsigned 16 bit
-            S = U; S(S >= 32768) = S(S >= 32768) - 65536; % two's complement
-
-            if isempty(obj.dbgFrame), obj.dbgFrame = S(:,1); end
+            U = b(1:2:end,:)*256 + b(2:2:end,:);            % unsigned 16 bit
+            S = U; S(S >= 32768) = S(S >= 32768) - 65536;   % two's complement
             obj.dbgLast = S(:,end);
 
-            % Loss detection with the sample counter (last hardware channel)
             if obj.checkCounter
                 cnt  = U(obj.nChHW, :);
                 d    = mod(diff([obj.lastCnt cnt]), 65536);
@@ -223,7 +229,6 @@ classdef Sessantaquattro_Acquire < handle
 
     methods (Static, Access = private)
         function b = cmdBytes(GO, MODE, NCH, FSAMP)
-            % 16-bit command word -> [high low] bytes (big endian)
             HPF = 1;
             cmd = GO + HPF*64 + MODE*256 + NCH*2048 + FSAMP*8192;
             b   = uint8([bitshift(cmd, -8), bitand(cmd, 255)]);
