@@ -311,6 +311,7 @@ switch mode
         else
             [cdata, sF, sdata] = RecordingSession(nM,nR,cT,rT,mov,hGUI_Rec,AFE_settings,get(handles.cb_trainVRE,'Value'),vreMovements,get(handles.cb_VRELeftHand,'Value'),movRepeatDlg,useLeg,rampStatus);
         end
+        if isempty(cdata), return; end
         sT = (cT+rT)*nR;
         cdata = cdata(:,:,size(cdata,3));
         tempdata = cdata;

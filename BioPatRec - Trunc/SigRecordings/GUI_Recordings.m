@@ -106,6 +106,9 @@ set(handles.pm_features,'String',['Select feature:'; fID]);
 
 % Choose default command line output for GUI_Recordings
 handles.output = hObject;
+set(handles.et_tW,'String','2');
+set([handles.txt_it handles.txt_ft handles.et_it handles.et_ft ...
+    handles.txt_if handles.txt_ff handles.et_if handles.et_ff],'Visible','off');
 % --- ADD DISCONNECT BUTTON DYNAMICALLY ---
 % Place it next to the Start button
 btnPos = get(handles.pb_Start, 'Position');
@@ -116,6 +119,27 @@ disconnectBtn = uicontrol(handles.figure1, 'Style', 'pushbutton', ...
     'Callback', @pb_disconnect_Callback, ...
     'Tag', 'pb_disconnect');
 handles.pb_disconnect = disconnectBtn;
+fast = varargin{1};
+setappdata(hObject,'FastRecordingMode',logical(fast));
+if ~fast
+    % Reuse the acquisition controls' space for session actions.
+    set([handles.et_tW handles.et_sT handles.txt_tW handles.txt_sT handles.pb_Start], ...
+        'Visible','off');
+    buttonParent = get(handles.pb_Start,'Parent');
+    buttonUnits = get(handles.pb_Start,'Units');
+    buttonPosition = get(handles.pb_Start,'Position');
+    controlPositions=cell2mat(get([handles.txt_tW handles.txt_sT ...
+        handles.et_tW handles.et_sT handles.pb_Start],'Position'));
+    left=min(controlPositions(:,1));
+    right=max(controlPositions(:,1)+controlPositions(:,3));
+    buttonPosition(1)=left;
+    buttonPosition(3)=(right-left-0.01)/2;
+    handles.pb_StopSession = uicontrol(buttonParent,'Style','pushbutton', ...
+        'Units',buttonUnits,'Position',buttonPosition,'String','Stop session', ...
+        'Tag','pb_StopSession','Enable','off','Callback',@pb_StopSession_Callback);
+    buttonPosition(1) = buttonPosition(1)+buttonPosition(3)+0.01;
+    set(disconnectBtn,'Parent',buttonParent,'Units',buttonUnits,'Position',buttonPosition);
+end
 % Update handles structure
 guidata(hObject, handles);
 
@@ -820,6 +844,7 @@ function m_Spatial_Callback(hObject, eventdata, handles)
 
 % --------------------------------------------------------------------
 function m_Recordings_Callback(hObject, eventdata, handles)
+if ~getappdata(ancestor(hObject,'figure'),'FastRecordingMode'), return; end
 % hObject    handle to m_Recordings (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
@@ -1180,7 +1205,23 @@ function m_vRef_Callback(hObject, eventdata, handles)
 % --- Executes on button press in pb_disconnect.
 % --- Executes on button press in pb_disconnect.
 % --- Executes on button press in pb_disconnect.
+function pb_StopSession_Callback(hObject, eventdata)
+    fig=ancestor(hObject,'figure');
+    if isgraphics(fig) && getappdata(fig,'RecordingInProgress')
+        setappdata(fig,'RecordingStopRequested',true);
+        set(hObject,'Enable','off');
+    end
+
 function pb_disconnect_Callback(hObject, eventdata, handles)
+    recordingFigure=ancestor(hObject,'figure');
+    if isgraphics(hObject,'figure'), recordingFigure=hObject; end
+    if isgraphics(recordingFigure) && getappdata(recordingFigure,'RecordingInProgress')
+        % Let acquisition stop and offer partial saving before disconnecting.
+        setappdata(recordingFigure,'DisconnectAfterRecording',true);
+        setappdata(recordingFigure,'RecordingStopRequested',true);
+        return;
+    end
+    if nargin < 3, handles=guidata(recordingFigure); end
     if isgraphics(hObject)
         recordingFigure=ancestor(hObject,'figure');
         if isgraphics(hObject,'figure'), recordingFigure=hObject; end
@@ -1189,6 +1230,15 @@ function pb_disconnect_Callback(hObject, eventdata, handles)
     global GLOBAL_ADAPTER;
     global GLOBAL_AFE_SETTINGS;
     
+    % The standard session adapter need not be stored in the fast globals.
+    if isgraphics(recordingFigure) && isappdata(recordingFigure,'RecordingAdapter')
+        sessionAdapter=getappdata(recordingFigure,'RecordingAdapter');
+        if ~isempty(sessionAdapter) && ~isequal(sessionAdapter,GLOBAL_ADAPTER)
+            try, sessionAdapter.disconnect();
+            catch ME, warning('BioPatRec:DisconnectFailed','%s',ME.message); end
+        end
+        rmappdata(recordingFigure,'RecordingAdapter');
+    end
     % 1. Try to close the hardware gracefully
     if ~isempty(GLOBAL_ADAPTER)
         try
@@ -1217,6 +1267,11 @@ function pb_disconnect_Callback(hObject, eventdata, handles)
 
 % --- Executes when user attempts to close figure1.
 function figure1_CloseRequestFcn(hObject, eventdata, handles)
+    if getappdata(hObject,'RecordingInProgress')
+        setappdata(hObject,'CloseAfterRecording',true);
+        pb_disconnect_Callback(hObject,eventdata,handles);
+        return;
+    end
     % Call our disconnect function to clean up the hardware
     % We do NOT pass handles here to avoid scoping issues during close
     pb_disconnect_Callback(hObject, eventdata, []); 

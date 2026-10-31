@@ -11,7 +11,13 @@ function cleanup = RecordingSession_Cleanup(kind,target)
             enabled=get(buttons,'Enable');
             setappdata(target,'RecordingInProgress',true);
             setappdata(target,'RecordingStopRequested',false);
+            % Reset offline axis controls on every acquisition, including reruns.
+            axisControls={'txt_it','txt_ft','et_it','et_ft','txt_if','txt_ff','et_if','et_ff'};
+            for control=axisControls
+                set(findall(target,'Tag',control{1}),'Visible','off');
+            end
             set(buttons,'Enable','off');
+            set(findall(target,'Tag','pb_StopSession'),'Enable','on');
             cleanup=onCleanup(@()releaseUI(target,buttons,enabled));
         case 'device'
             cleanup=onCleanup(@()stopDevice(target));
@@ -22,7 +28,13 @@ end
 function releaseUI(fig,buttons,enabled)
     if ~isgraphics(fig), return; end
     setappdata(fig,'RecordingInProgress',false);
+    set(findall(fig,'Tag','pb_StopSession'),'Enable','off');
+    if getappdata(fig,'DisconnectAfterRecording')
+        setappdata(fig,'DisconnectAfterRecording',false);
+        GUI_Recordings('pb_disconnect_Callback',fig,[],guidata(fig));
+    end
     if isscalar(buttons) && isgraphics(buttons), set(buttons,'Enable',enabled); end
+    if getappdata(fig,'CloseAfterRecording'), delete(fig); end
 end
 function stopDevice(adapter)
     try, adapter.stop();

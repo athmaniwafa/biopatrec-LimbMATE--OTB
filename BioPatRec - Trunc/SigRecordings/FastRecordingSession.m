@@ -13,6 +13,10 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
 
     recordingWindow=varargin{1};
     recordingFigure=recordingWindow.output;
+set([recordingWindow.txt_it recordingWindow.txt_ft ...
+    recordingWindow.et_it recordingWindow.et_ft ...
+    recordingWindow.txt_if recordingWindow.txt_ff ...
+    recordingWindow.et_if recordingWindow.et_ff],'Visible','off');
     uiCleanup=RecordingSession_Cleanup('ui',recordingFigure); %#ok<NASGU>
     global       handles;
     global       allData;
@@ -80,6 +84,8 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     end
     handles.sT    = sT;
     handles.sTall = sT;
+    set(handles.et_it,'String','0');
+    set(handles.et_ft,'String',num2str(sT));
 
     if isOTB400(deviceName)
         tWs = 256;
@@ -120,8 +126,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         p_t0 = plot(handles.a_t0, timeStamps, sData);
         handles.p_t0 = p_t0;
         xlim(handles.a_t0, [timeStamps(1) timeStamps(end)]);
-        set(handles.a_t0,'XTick',0:numel(timeStamps)-1);
-        set(handles.a_t0,'XTickLabel',timeStamps);
+        set(handles.a_t0, 'XTickMode','auto', 'XTickLabelMode','auto');
         ylim(handles.a_t0, [ymin ymax]);
         set(handles.a_t0,'YTick',offVector);
         set(handles.a_t0,'YTickLabel',0:nCh-1);
@@ -301,6 +306,9 @@ end
         DataShow(handles,cdata,sF,sT);
     end
     
+    set([handles.txt_it handles.txt_ft handles.et_it handles.et_ft ...
+    handles.txt_if handles.txt_ff handles.et_if handles.et_ff],'Visible','on');
+
     % Set visible the offline plot and process panels
     if isvalid(handles.uipanel9), set(handles.uipanel9,'Visible','on'); end
     if isvalid(handles.uipanel10), set(handles.uipanel10,'Visible','on'); end

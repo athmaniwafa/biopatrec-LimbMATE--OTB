@@ -209,8 +209,31 @@ if strcmp(plotType,'Raw Signal')
         rawGains=OTB400_DisplayScale(tempData,channelLayout,ampPP);
         frequencyGains=OTB400_DisplayScale(m,channelLayout,ampPP);
     end
+
+    tt = (0:size(allData,1)-1)' / sF;
+
+    windowSeconds = 3;
+    if isfield(handles,'fast') && handles.fast && ...
+            isfield(handles,'et_tW') && isgraphics(handles.et_tW)
+        % Read the GUI on every refresh, including during acquisition.
+        requestedWindow = str2double(get(handles.et_tW,'String'));
+        if isscalar(requestedWindow) && isfinite(requestedWindow) && requestedWindow > 0
+            handles.displayWindowSeconds = requestedWindow;
+        end
+        if isfield(handles,'displayWindowSeconds')
+            windowSeconds = handles.displayWindowSeconds;
+        end
+    end
+    rightEdge = max(windowSeconds, tt(end));
+    xlim(handles.a_t0, [rightEdge-windowSeconds rightEdge]);
+
+    plotData = allData;
+    if isLimbMATE(handles.deviceName) || offsetDelete
+        plotData = plotData - mean(plotData,1);
+    end
+
     for j = 1 : nCh
-        if isvalid(p_t0(j)), set(p_t0(j),'YData',tempData(:,j)*rawGains(j) + offVector(j)); end
+        if isvalid(p_t0(j)), set(p_t0(j), 'XData', tt, 'YData',plotData(:,j)*rawGains(j) + offVector(j)); end
         if isvalid(p_f0(j)), set(p_f0(j),'YData',m(:,j)*frequencyGains(j) + offVector(j)); end
     end
 end

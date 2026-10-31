@@ -17,6 +17,10 @@ function [cdata, sF, sensorData] = RecordingSession(varargin)
 
 recordingWindow=varargin{6};
 recordingFigure=recordingWindow.output;
+set([recordingWindow.txt_it recordingWindow.txt_ft ...
+    recordingWindow.et_it recordingWindow.et_ft ...
+    recordingWindow.txt_if recordingWindow.txt_ff ...
+    recordingWindow.et_if recordingWindow.et_ff],'Visible','off');
 uiCleanup=RecordingSession_Cleanup('ui',recordingFigure); %#ok<NASGU>
 global       handles;
 global       allData;
@@ -30,6 +34,7 @@ rT           = varargin{4};
 mov          = varargin{5};
 handles      = varargin{6};
 afeSettings  = varargin{7};
+if isfield(afeSettings,'adapter'), setappdata(recordingFigure,'RecordingAdapter',afeSettings.adapter); end
 trainWithVr  = varargin{8};
 vreMovements = varargin{9};
 vreLeftHand  = varargin{10};
@@ -218,6 +223,8 @@ else
 end
 
 
+ex = 1;
+try
 %% Starting Session..
 
 % --- START THE HARDWARE NOW (Pops up the mode selection) ---
@@ -243,6 +250,7 @@ drawnow;
 % Run all movements or exercise
 ex = 1;
 while ex <= nM
+    RecordingSession_Wait(recordingFigure,0);
     
     timeStamps = (0:tWs-1)/sF;
     currentTv = 1;
@@ -298,6 +306,7 @@ while ex <= nM
         pause(rT);
     end
 
+    RecordingSession_Wait(recordingFigure,0);
     %% Draw figure
     if isvalid(handles.a_f0)
         p_f0 = plot(handles.a_f0, timeStamps, fData);
@@ -311,7 +320,7 @@ while ex <= nM
     if strcmp(handles.plotType,'Raw Signal') && isvalid(handles.a_t0)
         p_t0 = plot(handles.a_t0, timeStamps, sData);
         handles.p_t0 = p_t0;
-        xlim(handles.a_t0, [0,tW]);
+        xlim(handles.a_t0, [0,sTall]);
         ylim(handles.a_t0, [ymin ymax]);
         set(handles.a_t0,'YTick',offVector);
         set(handles.a_t0,'YTickLabel',0:nCh-1);
@@ -364,7 +373,7 @@ while ex <= nM
                     fwrite(handles.vreCommunication,vreString);
                 end
             end
-            pause(cT - toc(startContractionTic));
+            RecordingSession_Wait(recordingFigure,cT-toc(startContractionTic));
             set(handles.t_msg,'String','Relax');
             startRelaxingTic = tic;
             if trainWithVr
@@ -375,7 +384,7 @@ while ex <= nM
             pic = image(relax,'Parent',handles.a_pic);
             axis(handles.a_pic,'off');
             handles.contraction = 0;
-            pause(rT - toc(startRelaxingTic));
+            RecordingSession_Wait(recordingFigure,rT-toc(startRelaxingTic));
         end
     else
         if useAcceleGlove
@@ -536,6 +545,7 @@ while ex <= nM
         end
     end
 
+    RecordingSession_Wait(recordingFigure,0);
     if exist('error', 'var') && error == 1
         errordlg('Error occurred during the acquisition!','Error');
         return
@@ -565,6 +575,48 @@ end                                       % end of: while ex <= nM
 % SQ+: all movements done, now stop the stream and close the connection
 if isSQplus(deviceName) && exist('dev','var') && ~isempty(dev)
     dev.stop();
+end
+
+catch ME
+    if ~strcmp(ME.identifier,'BioPatRec:RecordingCancelled')
+        rethrow(ME);
+    end
+    % Stop hardware before opening a modal save dialog.
+    if exist('movementCleanup','var'), clear movementCleanup; end
+    if isfield(afeSettings,'adapter') && ~isempty(afeSettings.adapter) && ~isOTB400(deviceName)
+        try, afeSettings.adapter.stop();
+        catch stopError, warning('BioPatRec:StopFailed','%s',stopError.message); end
+    end
+    if exist('s','var')
+        try, s.stop(); catch, end
+    end
+    if exist('lh','var') && isvalid(lh), delete(lh); end
+    if trainWithVr
+        try, fclose(handles.vreCommunication); catch, end
+    end
+    if isgraphics(recordingFigure)
+        partialSession = RecordingSession_PartialData(recSessionData,allData,ex, ...
+            sF,cT,rT,nR,mov,deviceName);
+        partialSession.sensorData = sensorData;
+        setappdata(recordingFigure,'PartialRecording',partialSession);
+        if size(allData,1)>1
+            duration=size(allData,1)/sF;
+            DataShow(handles,allData,sF,duration);
+            set([handles.txt_it handles.txt_ft handles.et_it handles.et_ft ...
+    handles.txt_if handles.txt_ff handles.et_if handles.et_ff],'Visible','on');
+            set(handles.et_it,'String','0');
+            set(handles.et_ft,'String',num2str(duration));
+        end
+        choice=questdlg('Save the data acquired before stopping?', ...
+            'Session stopped','Save','Discard','Save');
+        if strcmp(choice,'Save')
+            [file,folder]=uiputfile('*.mat','Save partial session','PartialSession.mat');
+            if ~isequal(file,0), save(fullfile(folder,file),'partialSession'); end
+        end
+        set(handles.t_msg,'String','Session stopped');
+    end
+    cdata=[];
+    return;
 end
 
 %% Session finish..
@@ -654,8 +706,11 @@ if saveRec
     if isvalid(handles.et_ft), set(handles.et_ft,'visible','on'); end
     if isvalid(handles.txt_if), set(handles.txt_if,'visible','on'); end
     if isvalid(handles.txt_ff), set(handles.txt_ff,'visible','on'); end
+    if isvalid(handles.et_it), set(handles.et_it,'String','0'); end
+    if isvalid(handles.et_ft), set(handles.et_ft,'String',num2str(sTall)); end
     if isvalid(handles.et_if), set(handles.et_if,'visible','on'); end
     if isvalid(handles.et_ff), set(handles.et_ff,'visible','on'); end
+
     
     if isvalid(handles.lb_channels)
         chVector = 0:nCh-1;
