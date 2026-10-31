@@ -218,12 +218,15 @@ if mode == 0
 end
 
 % --- SQ+ matrix: the display choice decides the flow ---
+% --- SQ+ matrix: the display choice decides the flow ---
 if (strcmp(char(deviceName{1}), 'SQ+') || isSQplus(deviceName)) && nCh == 64
-    if isfield(handles,'SQElectrodes')
-        AFE_settings.OTB400Electrodes = handles.SQElectrodes;
+    if isfield(handles,'SQElectrodes') && isfield(handles.SQElectrodes,'adapter')
+        el = handles.SQElectrodes;
     else
-        AFE_settings.OTB400Electrodes = struct('MULTIPLE_IN1','BIG');
+        el = struct('adapter','AD1x64SP','grid','8x8','MULTIPLE_IN1','BIG');
     end
+    AFE_settings.SQElectrodes     = el;
+    AFE_settings.OTB400Electrodes = el;     % kept for the existing image / map code
     if isfield(handles,'SQDisplay')
         AFE_settings.SQDisplay = handles.SQDisplay;
     else
@@ -277,10 +280,20 @@ end
 if strcmp(char(deviceName{1}), 'SQ+') || isSQplus(deviceName)
     handles.objSQ = [];
 end
-
 handles.adapter = DeviceFactory(deviceName, nCh, sF, handles, AFE_settings);
+
+% SQ+: force the adapter / grid chosen in the dialog onto the adapter object
+if (strcmp(char(deviceName{1}), 'SQ+') || isSQplus(deviceName)) && nCh == 64 ...
+        && isfield(AFE_settings,'SQElectrodes')
+    handles.adapter.electrodes = AFE_settings.SQElectrodes;
+    if isfield(AFE_settings,'SQDisplay')
+        handles.adapter.display = AFE_settings.SQDisplay;
+    end
+    fprintf('[GUI] SQ+ electrodes: %s\n', handles.adapter.electrodeLabel());
+end
+
 guidata(hObject, handles);
-AFE_settings.adapter = handles.adapter;
+AFE_settings.adapter = handles.adapter;;
 
 % Pass objects to the recording GUI
 hGUI_Rec.objSQ   = handles.objSQ;
@@ -456,20 +469,20 @@ if isOTB400(deviceName)
 end
 
 if strcmp(deviceName, 'SQ+')
-    choice = questdlg('Select SQ+ configuration:', 'SQ+ Mode', ...
-                      '8 Channels (Bipolar)', '64 Channels (Matrix)', '8 Channels (Bipolar)');
-    if isempty(choice), choice = '8 Channels (Bipolar)'; end
+    % Step 1: adapter (AD1x64SP / AD2x32SP / Bipolar), step 2: grid if needed
+    [el, nChSel, ok] = SQ_SelectElectrodes();
+    if ~ok
+        % cancelled: fall back to bipolar
+        el = struct('adapter','BIPOLAR','grid','','MULTIPLE_IN1','BIPOLAR');
+        nChSel = 8;
+    end
 
-    if strcmp(choice, '64 Channels (Matrix)')
-        handles.nCh = 64;
-        handles.vCh = 1:64;
-        set(handles.et_chs, 'String', '64');
+    handles.nCh = nChSel;
+    handles.vCh = 1:nChSel;
+    set(handles.et_chs, 'String', num2str(nChSel));
+    handles.SQElectrodes = el;
 
-        g = questdlg('Matrix adapter:', 'SQ+ Matrix', '8x8', '13x5', '8x8');
-        if isempty(g), g = '8x8'; end
-        if strcmp(g, '8x8'), gridType = 'BIG'; else, gridType = 'SMALL'; end
-        handles.SQElectrodes = struct('MULTIPLE_IN1', gridType);
-
+    if nChSel == 64
         d = questdlg('Display mode:', 'SQ+ Display', ...
             'Heatmap image', 'Session + map', 'Session (traces)', 'Heatmap image');
         switch d
@@ -479,9 +492,6 @@ if strcmp(deviceName, 'SQ+')
         end
         srTarget = '2000';
     else
-        handles.nCh = 8;
-        handles.vCh = 1:8;
-        set(handles.et_chs, 'String', '8');
         srTarget = '1000';
     end
 

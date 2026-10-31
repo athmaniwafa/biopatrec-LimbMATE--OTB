@@ -39,8 +39,13 @@ rampStatus   = varargin{13};
 saveRec     = true;
 
 % The gate (OTB400_HD / SQ+ "Session + map") lives inside this function.
-handles.OTBRecordingMap = OTB400_OpenRecordingMap(afeSettings, handles);
-
+% SQ+ uses its own map (SQ_OpenHeatmap, opened after the hardware starts);
+% every other device keeps the original gate.
+if isSQplus(afeSettings.name)
+    handles.OTBRecordingMap = [];
+else
+    handles.OTBRecordingMap = OTB400_OpenRecordingMap(afeSettings, handles);
+end
 if sum(strcmp(varargin,'replace')) > 0
     saveRec = false;
 end
@@ -219,6 +224,10 @@ end
 if isfield(afeSettings, 'adapter') && ~isempty(afeSettings.adapter) && ~isOTB400(deviceName)
     fprintf('[RecordingSession] Starting hardware adapter...\n');
     afeSettings.adapter.start(afeSettings);
+    if isSQplus(deviceName) && nCh == 64 && isfield(afeSettings,'SQDisplay') ...
+            && strcmp(afeSettings.SQDisplay, 'session_map')
+        SQ_OpenHeatmap(handles, afeSettings.adapter);
+    end
 end
 
 set(handles.t_msg,'String','Get ready to start: 3'); pause(1);
@@ -583,10 +592,15 @@ if saveRec
         recSession.vCh = handles.vCh;
     end
     recSession.dev      = deviceName;
+    if isSQplus(deviceName) && isfield(afeSettings,'adapter') && ~isempty(afeSettings.adapter)
+    recSession.electrodes     = afeSettings.adapter.electrodes;
+    recSession.electrodeLabel = afeSettings.adapter.electrodeLabel();   % e.g. 'AD1x64SP 8x8'
+    end
     recSession.comm     = ComPortType;
     if strcmp(ComPortType, 'COM')
         recSession.comn = ComPortName;
     end
+    
     recSession.useAcceleGlove = useAcceleGlove;
     if useAcceleGlove
         recSession.sensorData = sensorData;

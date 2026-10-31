@@ -21,7 +21,12 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     allData      = [];
     handles      = varargin{1};
     afeSettings  = varargin{2};
+    % SQ+ has its own map (SQ_OpenHeatmap); other devices keep the original gate.
+    if isSQplus(afeSettings.name)
+    handles.OTBRecordingMap = [];
+    else
     handles.OTBRecordingMap = OTB400_OpenRecordingMap(afeSettings, handles);
+    end
 
     % Get required informations from afeSettings structure
     nCh          = afeSettings.channels;
@@ -201,7 +206,11 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         dev = afeSettings.adapter;
         deviceCleanup=RecordingSession_Cleanup('device',dev); %#ok<NASGU>
         dev.start(afeSettings);
-        
+        if isSQplus(deviceName) && nCh == 64 && isfield(afeSettings,'SQDisplay') ...
+        && strcmp(afeSettings.SQDisplay, 'session_map')
+        SQ_OpenHeatmap(handles, dev);
+        end
+         
         samplesCounter = 0;
 
         tic
@@ -236,6 +245,14 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
             
             samplesCounter = samplesCounter + size(cdata,1);
             RecordingSession_ShowData(0, acquireEvent);
+            % SQ+ "Session + map": live amplitude heatmap
+if isappdata(handles.output,'SQHeatmapUpdate')
+    try
+        updateHeatFcn = getappdata(handles.output,'SQHeatmapUpdate');
+        updateHeatFcn(cdata);
+    catch
+    end
+end
         end
         toc
 
@@ -260,6 +277,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     end
 
     cdata = allData;
+    delete(findall(0,'Tag','SQHeatFig'));
     allData = [];                                                      
     
     if ~isgraphics(recordingFigure), return; end
