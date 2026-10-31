@@ -143,17 +143,9 @@ function handlesX = RealtimePatRec(patRecX, handlesX)
         % DeviceFactory only wraps afeSettings.objOT, so real-time must create it
         % (same device type and electrodes as the recording).
         if isOTB400(deviceName)
-            if strcmpi(char(deviceName),'OTB400_HD')
-                choice = questdlg('Number of channels on the device (same as recording):', ...
-                                  'OTB400 HD','64','128','64');
-                if isempty(choice), error('RealtimePatRec:OTBCancelled','User cancelled OTB selection.'); end
-                nDev = str2double(choice);
-                [electrodes, ok] = OTB400_SelectElectrodes(nDev);
-                if ~ok, error('RealtimePatRec:OTBCancelled','User cancelled electrode selection.'); end
-                afeLocal.objOT = OT_Acquire('hd', nDev, max(60,sT+10), electrodes);
-            else
-                afeLocal.objOT = OT_Acquire('bipolar', max(8,max(trainedCh)), max(60,sT+10));
-            end
+            [selection, ok] = OTB400_SelectInputs(deviceName);
+            if ~ok, error('RealtimePatRec:OTBCancelled','User cancelled OTB selection.'); end
+            afeLocal.objOT = OT_Acquire('inputs', selection, max(60,sT+10));
         elseif isSQplus(deviceName) && isempty(afeLocal.objSQ)
             warning('[SQ+] afeLocal.objSQ is empty; SQPlusAdapter may have nothing to read from.');
         end

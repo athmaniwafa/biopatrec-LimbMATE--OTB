@@ -210,24 +210,28 @@ if strcmp(plotType,'Raw Signal')
         frequencyGains=OTB400_DisplayScale(m,channelLayout,ampPP);
     end
 
-    tt = (0:size(allData,1)-1)' / sF;
-
-    windowSeconds = 3;
-    if isfield(handles,'fast') && handles.fast && ...
-            isfield(handles,'et_tW') && isgraphics(handles.et_tW)
-        % Read the GUI on every refresh, including during acquisition.
-        requestedWindow = str2double(get(handles.et_tW,'String'));
-        if isscalar(requestedWindow) && isfinite(requestedWindow) && requestedWindow > 0
-            handles.displayWindowSeconds = requestedWindow;
-        end
-        if isfield(handles,'displayWindowSeconds')
-            windowSeconds = handles.displayWindowSeconds;
-        end
-    end
-    rightEdge = max(windowSeconds, tt(end));
-    xlim(handles.a_t0, [rightEdge-windowSeconds rightEdge]);
-
     plotData = allData;
+    if isfield(handles,'fast') && ~handles.fast && (cT+rT) > 0
+        % Show only the current contraction/rest phase, starting at zero.
+        [plotData,tt,phaseSeconds] = RecordingSession_PhaseData(allData,sF,cT,rT);
+        xlim(handles.a_t0,[0 phaseSeconds]);
+    else
+        tt = (0:size(allData,1)-1)' / sF;
+        windowSeconds = 3;
+        if isfield(handles,'fast') && handles.fast && ...
+                isfield(handles,'et_tW') && isgraphics(handles.et_tW)
+            % Read the GUI on every refresh, including during acquisition.
+            requestedWindow = str2double(get(handles.et_tW,'String'));
+            if isscalar(requestedWindow) && isfinite(requestedWindow) && requestedWindow > 0
+                handles.displayWindowSeconds = requestedWindow;
+            end
+            if isfield(handles,'displayWindowSeconds')
+                windowSeconds = handles.displayWindowSeconds;
+            end
+        end
+        rightEdge = max(windowSeconds, tt(end));
+        xlim(handles.a_t0, [rightEdge-windowSeconds rightEdge]);
+    end
     if isLimbMATE(handles.deviceName) || offsetDelete
         plotData = plotData - mean(plotData,1);
     end

@@ -249,6 +249,13 @@ drawnow;
 
 % Run all movements or exercise
 ex = 1;
+if isappdata(recordingFigure,'SessionResumeState')
+    resumeState=getappdata(recordingFigure,'SessionResumeState');
+    recSessionData=resumeState.recSessionData;
+    allData=resumeState.allData;
+    ex=resumeState.movement;
+    rmappdata(recordingFigure,'SessionResumeState');
+end
 while ex <= nM
     RecordingSession_Wait(recordingFigure,0);
     
@@ -281,7 +288,7 @@ while ex <= nM
     
     % Dummy Contraction
     set(handles.t_msg,'String',mov(ex));
-    if afeSettings.prepare
+    if afeSettings.prepare && isempty(allData)
         if trainWithVr
             numberOfMovements = length(vreMovements{ex});
             tempJumps = numJumps/numberOfMovements;
@@ -320,7 +327,7 @@ while ex <= nM
     if strcmp(handles.plotType,'Raw Signal') && isvalid(handles.a_t0)
         p_t0 = plot(handles.a_t0, timeStamps, sData);
         handles.p_t0 = p_t0;
-        xlim(handles.a_t0, [0,sTall]);
+        xlim(handles.a_t0, [0,max(cT,rT*(cT==0))]);
         ylim(handles.a_t0, [ymin ymax]);
         set(handles.a_t0,'YTick',offVector);
         set(handles.a_t0,'YTickLabel',0:nCh-1);
@@ -412,7 +419,12 @@ while ex <= nM
         % so the plot starts at "now" instead of fast-forwarding.
         if ismethod(dev,'flush'), dev.flush(); end
         
-        for rep = 1 : nR
+        % Continue only the windows not already stored before Stop.
+        if ~isempty(allData), timeStamps=(0:size(allData,1)-1)'/sF; end
+        completedWindows=floor(size(allData,1)/tWs);
+        windowsPerRep=floor(sT/tW);
+        firstRep=floor(completedWindows/windowsPerRep)+1;
+        for rep = firstRep : nR
             rep
             handles.rep = rep;
             handles.contraction = 1;
@@ -421,7 +433,15 @@ while ex <= nM
             cData = zeros(tWs, nCh);
             
             tic
-            for timeWindowNr = 1:sT/tW
+            firstWindow=1;
+            if rep==firstRep
+                firstWindow=mod(completedWindows,windowsPerRep)+1;
+                elapsed=(firstWindow-1)*tWs;
+                handles.contraction=elapsed < round(cT*sF);
+                if handles.contraction, samplesCounter=elapsed+1;
+                else, samplesCounter=elapsed-round(cT*sF)+1; end
+            end
+            for timeWindowNr = firstWindow:sT/tW
                 if useAcceleGlove
                     acceleGlove.update();
                 end
@@ -533,7 +553,7 @@ while ex <= nM
     end                                   % end of: if NI ... else (adapter)
 
     if strcmp(ComPortType,'NI')
-        error = 0;
+        acquisitionError = 0;
         if ~s.IsDone
             s.wait();
         end
@@ -546,7 +566,7 @@ while ex <= nM
     end
 
     RecordingSession_Wait(recordingFigure,0);
-    if exist('error', 'var') && error == 1
+    if exist('acquisitionError', 'var') && acquisitionError == 1
         errordlg('Error occurred during the acquisition!','Error');
         return
     else
@@ -607,11 +627,12 @@ catch ME
             set(handles.et_it,'String','0');
             set(handles.et_ft,'String',num2str(duration));
         end
-        choice=questdlg('Save the data acquired before stopping?', ...
-            'Session stopped','Save','Discard','Save');
-        if strcmp(choice,'Save')
-            [file,folder]=uiputfile('*.mat','Save partial session','PartialSession.mat');
-            if ~isequal(file,0), save(fullfile(folder,file),'partialSession'); end
+        % Keep the checkpoint in memory until Start, Disconnect, or Close.
+        if ~isequal(getappdata(recordingFigure,'DisconnectAfterRecording'),true) && ...
+                ~isequal(getappdata(recordingFigure,'CloseAfterRecording'),true)
+            state=struct('arguments',{varargin},'recSessionData',recSessionData, ...
+                'allData',allData,'movement',ex);
+            setappdata(recordingFigure,'SessionResumeState',state);
         end
         set(handles.t_msg,'String','Session stopped');
     end

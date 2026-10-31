@@ -33,7 +33,15 @@ function releaseUI(fig,buttons,enabled)
         setappdata(fig,'DisconnectAfterRecording',false);
         GUI_Recordings('pb_disconnect_Callback',fig,[],guidata(fig));
     end
-    if isscalar(buttons) && isgraphics(buttons), set(buttons,'Enable',enabled); end
+    if isscalar(buttons) && isgraphics(buttons)
+        if isappdata(fig,'SessionResumeState')
+            set(buttons,'Enable','on');
+        elseif isappdata(fig,'FastRecordingMode') && ~getappdata(fig,'FastRecordingMode')
+            set(buttons,'Enable','off');
+        else
+            set(buttons,'Enable',enabled);
+        end
+    end
     if getappdata(fig,'CloseAfterRecording'), delete(fig); end
 end
 function stopDevice(adapter)

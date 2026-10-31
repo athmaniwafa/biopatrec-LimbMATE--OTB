@@ -106,6 +106,9 @@ set(handles.pm_features,'String',['Select feature:'; fID]);
 
 % Choose default command line output for GUI_Recordings
 handles.output = hObject;
+% Bind closing explicitly instead of relying on the saved GUIDE figure.
+set(hObject,'CloseRequestFcn', ...
+    @(fig,event)figure1_CloseRequestFcn(fig,event,guidata(fig)));
 set(handles.et_tW,'String','2');
 set([handles.txt_it handles.txt_ft handles.et_it handles.et_ft ...
     handles.txt_if handles.txt_ff handles.et_if handles.et_ff],'Visible','off');
@@ -133,12 +136,16 @@ if ~fast
     left=min(controlPositions(:,1));
     right=max(controlPositions(:,1)+controlPositions(:,3));
     buttonPosition(1)=left;
-    buttonPosition(3)=(right-left-0.01)/2;
+    buttonPosition(3)=(right-left-0.02)/3;
     handles.pb_StopSession = uicontrol(buttonParent,'Style','pushbutton', ...
         'Units',buttonUnits,'Position',buttonPosition,'String','Stop session', ...
         'Tag','pb_StopSession','Enable','off','Callback',@pb_StopSession_Callback);
     buttonPosition(1) = buttonPosition(1)+buttonPosition(3)+0.01;
     set(disconnectBtn,'Parent',buttonParent,'Units',buttonUnits,'Position',buttonPosition);
+    buttonPosition(1)=buttonPosition(1)+buttonPosition(3)+0.01;
+    set(handles.pb_Start,'Parent',buttonParent,'Units',buttonUnits, ...
+        'Position',buttonPosition,'Visible','on','Enable','off', ...
+        'Callback',@pb_ResumeSession_Callback);
 end
 % Update handles structure
 guidata(hObject, handles);
@@ -1205,6 +1212,20 @@ function m_vRef_Callback(hObject, eventdata, handles)
 % --- Executes on button press in pb_disconnect.
 % --- Executes on button press in pb_disconnect.
 % --- Executes on button press in pb_disconnect.
+function pb_ResumeSession_Callback(hObject, eventdata)
+    fig=ancestor(hObject,'figure');
+    if ~isappdata(fig,'SessionResumeState'), return; end
+    choice=questdlg('Resume from the stopping point or repeat the current movement?', ...
+        'Session paused','Resume from here','Repeat movement','Cancel','Resume from here');
+    if isempty(choice) || strcmp(choice,'Cancel'), return; end
+    state=getappdata(fig,'SessionResumeState');
+    if strcmp(choice,'Repeat movement')
+        state.allData=[];
+    end
+    setappdata(fig,'SessionResumeState',state);
+    args=state.arguments;
+    args{6}=guidata(fig);
+    RecordingSession(args{:});
 function pb_StopSession_Callback(hObject, eventdata)
     fig=ancestor(hObject,'figure');
     if isgraphics(fig) && getappdata(fig,'RecordingInProgress')
@@ -1215,13 +1236,13 @@ function pb_StopSession_Callback(hObject, eventdata)
 function pb_disconnect_Callback(hObject, eventdata, handles)
     recordingFigure=ancestor(hObject,'figure');
     if isgraphics(hObject,'figure'), recordingFigure=hObject; end
-    if isgraphics(recordingFigure) && getappdata(recordingFigure,'RecordingInProgress')
+    if isgraphics(recordingFigure) && isequal(getappdata(recordingFigure,'RecordingInProgress'),true)
         % Let acquisition stop and offer partial saving before disconnecting.
         setappdata(recordingFigure,'DisconnectAfterRecording',true);
         setappdata(recordingFigure,'RecordingStopRequested',true);
         return;
     end
-    if nargin < 3, handles=guidata(recordingFigure); end
+    if nargin < 3 || isempty(handles), handles=guidata(recordingFigure); end
     if isgraphics(hObject)
         recordingFigure=ancestor(hObject,'figure');
         if isgraphics(hObject,'figure'), recordingFigure=hObject; end
@@ -1229,6 +1250,10 @@ function pb_disconnect_Callback(hObject, eventdata, handles)
     end
     global GLOBAL_ADAPTER;
     global GLOBAL_AFE_SETTINGS;
+    if isgraphics(recordingFigure) && isappdata(recordingFigure,'SessionResumeState')
+        rmappdata(recordingFigure,'SessionResumeState');
+        set(findall(recordingFigure,'Tag','pb_Start'),'Enable','off');
+    end
     
     % The standard session adapter need not be stored in the fast globals.
     if isgraphics(recordingFigure) && isappdata(recordingFigure,'RecordingAdapter')
@@ -1259,7 +1284,7 @@ function pb_disconnect_Callback(hObject, eventdata, handles)
     end
     
     % 4. Update the GUI message (only if handles and t_msg exist)
-    if nargin > 2 && ~isempty(handles) && isstruct(handles) && isfield(handles, 't_msg')
+    if ~isempty(handles) && isstruct(handles) && isfield(handles, 't_msg') && isgraphics(handles.t_msg)
         set(handles.t_msg, 'String', 'Disconnected. Ready for new connection.');
     end
     fprintf('[GUI] Hardware disconnected and globals cleared.\n');

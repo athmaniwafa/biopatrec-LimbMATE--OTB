@@ -300,6 +300,8 @@ hGUI_Rec.objSQ   = handles.objSQ;
 hGUI_Rec.objOT   = handles.objOT;
 hGUI_Rec.objLM   = handles.objLM;
 hGUI_Rec.adapter = handles.adapter;
+% The recording window owns the connection, even before acquisition starts.
+setappdata(hGUI_Rec.output,'RecordingAdapter',handles.adapter);
 
 switch mode
     case 0
@@ -517,7 +519,7 @@ function pm_name_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
-deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LimbMate', 'OTB400_HD', 'OTB400_bipolar', 'SQ+', 'OTB400_mixed'};
+deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LimbMate', 'OTB400', 'SQ+'};
 set(hObject,'String',deviceNames);
 set(hObject,'Value',5);
 
