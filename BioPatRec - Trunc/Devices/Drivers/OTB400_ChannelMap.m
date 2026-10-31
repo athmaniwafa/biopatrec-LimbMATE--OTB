@@ -157,6 +157,7 @@ function cmInstall(fig, ax, nCh, electrodes)
     st = struct();
     st.map = channelMap;
     st.contactMaps = contactMaps;
+    st.electrodes = electrodes;
     st.nCh = nCh;
     st.nHD = nHD;
     st.localNumbers = mod((1:nCh)-1,64)+1;
@@ -377,6 +378,9 @@ function cmClicked(fig,ch)
     if recordingMap
         refreshTrace = getappdata(fig,'OTBRecordingRefresh');
         refreshTrace();
+    elseif isappdata(fig,'OTB400_ChannelSelectionChanged')
+        refreshSelection=getappdata(fig,'OTB400_ChannelSelectionChanged');
+        refreshSelection(st.enabled);
     end
 end
 
@@ -501,7 +505,7 @@ function cmPaint(fig)
         set(st.axes,'YDir','reverse','Color',background, ...
             'XLim',[.5 size(st.map,2)+.5], ...
             'YLim',[.5 size(st.map,1)+.5], ...
-            'XTick',[],'YTick',[]);
+            'XTick',[],'YTick',[],'DataAspectRatio',[1 1 1]);
         hold(st.axes,'on');
         st.plotHighlight=rectangle('Parent',st.axes, ...
             'Position',[.5 .5 1 1], 'EdgeColor',[1 .7 0], ...
@@ -526,11 +530,25 @@ function cmPaint(fig)
                 setappdata(label,'OTB400_GlobalChannel',globalCh);
             end
         end
-        groupTitles=cell(1,numel(st.contactMaps));
         offset=0;
         for k=1:numel(st.contactMaps)
             values=st.contactMaps{k}; first=values(find(isfinite(values),1));
-            groupTitles{k}=regexp(st.channelLabels{first},'^HD\d+','match','once');
+            groupName=regexp(st.channelLabels{first},'^HD\d+','match','once');
+            [nRows,nCols]=size(values);
+            % Keep each physical grid visible at its own true dimensions.
+            for x=0:nCols
+                line(st.axes,[offset+x+.5 offset+x+.5],[.5 nRows+.5], ...
+                    'Color',[.7 .7 .7],'HitTest','off','Tag','OTBGridLine');
+            end
+            for y=0:nRows
+                line(st.axes,[offset+.5 offset+nCols+.5],[y+.5 y+.5], ...
+                    'Color',[.7 .7 .7],'HitTest','off','Tag','OTBGridLine');
+            end
+            text(st.axes,offset+(nCols+1)/2,.2, ...
+                groupName, ...
+                'HorizontalAlignment','center','VerticalAlignment','bottom', ...
+                'FontSize',8,'FontWeight','bold','Clipping','off', ...
+                'HitTest','off','Tag','OTBMatrixTitle');
             offset=offset+size(st.contactMaps{k},2);
             if k<numel(st.contactMaps)
                 gapX=offset+1;
@@ -539,7 +557,7 @@ function cmPaint(fig)
                 offset=offset+1;
             end
         end
-        title(st.axes,strjoin(groupTitles,' / '));
+        title(st.axes,'');
         hold(st.axes,'off');
     else
         set(st.plotImage,'CData',img);
@@ -565,9 +583,11 @@ function cmHighlight(fig)
     % Borders must not intercept clicks.
     set(st.plotHighlight,'PickableParts','none');
 
-    if isappdata(fig,'OTBRecordingRefresh')
+    if isappdata(fig,'OTBRecordingRefresh') || isappdata(fig,'OTB400_ChannelSelectionChanged')
         marked = false(1,st.nCh);
-        if isfield(st,'marked')
+        if isappdata(fig,'OTB400_ChannelSelectionChanged')
+            marked = st.enabled;
+        elseif isfield(st,'marked')
             marked = st.marked;
         end
 

@@ -72,7 +72,7 @@ panel = uipanel( ...
     'Units', 'normalized', ...
     'Position', [0.005 0.02 0.25 0.34], ...
     'BackgroundColor', [1 1 1], ...
-    'Title', 'Elettrodi HD');
+    'Title', '');
 
 if isempty(layout)
     layout = OTB400_ChannelLayout(struct('NumChannels',64,'NumMatrices',1));
@@ -82,11 +82,12 @@ groupPosition=get(groupPanel,'Position');
 groupBottom=groupPosition(2);
 
 filterButton = uicontrol( ...
-    'Parent',panel, ...
+    'Parent',groupPanel, ...
     'Style','togglebutton', ...
     'Units','normalized', ...
-    'Position',[0.05 groupBottom-.11 0.90 0.09], ...
-    'String','Solo selezionati', ...
+    'Position',[.05 .02 .90 .43], ...
+    'String','Show selected', ...
+    'Tag','OTBShowSelected', ...
     'Value',0, ...
     'Callback',@onFilter);
 
@@ -96,11 +97,15 @@ if hasHD
 mapAx = axes( ...
     'Parent', panel, ...
     'Units', 'normalized', ...
-    'Position', [0.05 0.04 0.90 max(.15,groupBottom-.24)]);
+    'Position', [0.03 0.03 0.94 max(.15,groupBottom-.09)]);
 
 setappdata(mapAx, 'OTB400_UniformBackground', true);
 
 electrodes = afeSettings.OTB400Electrodes;
+% Use the electrode types belonging to the actual acquisition configuration.
+if isOTB400(afeSettings.name) && isfield(config,'Electrodes')
+    electrodes = config.Electrodes;
+end
 if ~isempty(layout)
     electrodes.HDColumns = layout.HDColumns;
     electrodes.HDInputNumbers = layout.HDInputNumbers;
@@ -123,10 +128,13 @@ mapMotion = get(mainFig, 'WindowButtonMotionFcn');
 set(mainFig, 'WindowButtonMotionFcn', @onMotion);
 else
     set(filterButton,'Visible','off');
-    set(panel,'Title','Ingressi bipolari');
+    set(panel,'Title','');
 end
 
 setappdata(mainFig, 'OTBRecordingRefresh', @highlightTrace);
+% Keep the compact controls at a fixed pixel height when the panel resizes.
+set(panel,'SizeChangedFcn',@resizePanel);
+resizePanel();
 
 % Live amplitude heatmap in its own window (drawn on the installed map)
 try
@@ -135,11 +143,21 @@ catch heatErr
     warning('Live heatmap unavailable: %s', heatErr.message);
 end
 
+    function resizePanel(~,~)
+        pixels=getpixelposition(panel);
+        rows=getappdata(groupPanel,'OTBGroupRows');
+        height=min(.75,(24*(rows+1)+4)/max(1,pixels(4)));
+        bottom=.99-height;
+        set(groupPanel,'Position',[.02 bottom .96 height]);
+        if isgraphics(mapAx,'axes')
+            set(mapAx,'Position',[.03 .03 .94 max(.15,bottom-.09)]);
+        end
+    end
     function onFilter(src,~)
         if get(src,'Value')
-            set(src,'String','Mostra tutti');
+            set(src,'String','Show all');
         else
-            set(src,'String','Solo selezionati');
+            set(src,'String','Show selected');
         end
         highlightTrace();
     end
@@ -249,7 +267,6 @@ end
             set(h.a_t0, 'YTickLabel', state.channelLabels(displayColumns));
         end
 
-        set(panel, 'Title', sprintf('Ingressi - %d canali visibili', numel(displayColumns)));
     end
 
     function moveTrace(lineHandle,ch,columns,spacing,nativeOffsets)

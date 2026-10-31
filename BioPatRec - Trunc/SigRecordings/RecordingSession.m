@@ -212,7 +212,8 @@ handles.hPatch = patch( ...
 drawnow update
 
 % Allocation of resource to improve speed, total data
-recSessionData = zeros(sF*sTall, nCh, nM);
+recSessionData = zeros(round(sF*sTall), nCh, nM);
+receivedSamples = zeros(1,nM);
 if isfield(afeSettings,'useAcceleGlove') && afeSettings.useAcceleGlove == 1
     useAcceleGlove = 1;
     sensorData.accelerometers = zeros(18,sT/tW);
@@ -252,6 +253,7 @@ ex = 1;
 if isappdata(recordingFigure,'SessionResumeState')
     resumeState=getappdata(recordingFigure,'SessionResumeState');
     recSessionData=resumeState.recSessionData;
+    receivedSamples=resumeState.receivedSamples;
     allData=resumeState.allData;
     ex=resumeState.movement;
     rmappdata(recordingFigure,'SessionResumeState');
@@ -572,6 +574,7 @@ while ex <= nM
     else
         if isvalid(handles.a_t0)
             DataShow(handles, allData, sF, sTall);
+            RecordingSession_PhaseLines(handles.a_t0,cT,rT,nR);
         end
 
         if movRepeatDlg
@@ -581,11 +584,13 @@ while ex <= nM
             def = {'n'};
             answer = inputdlg(prompt,dlg_title,num_lines,def);
             if strcmp(answer{1}, 'n')
-                recSessionData(:,:,ex) = allData(:,:);
+                receivedSamples(ex)=size(allData,1);
+                recSessionData(1:size(allData,1),:,ex) = allData(:,:);
                 ex = ex + 1;
             end
         else
-            recSessionData(:,:,ex) = allData(:,:);
+            receivedSamples(ex)=size(allData,1);
+                recSessionData(1:size(allData,1),:,ex) = allData(:,:);
             ex = ex + 1;
         end
         allData = [];
@@ -631,7 +636,7 @@ catch ME
         if ~isequal(getappdata(recordingFigure,'DisconnectAfterRecording'),true) && ...
                 ~isequal(getappdata(recordingFigure,'CloseAfterRecording'),true)
             state=struct('arguments',{varargin},'recSessionData',recSessionData, ...
-                'allData',allData,'movement',ex);
+                'allData',allData,'movement',ex,'receivedSamples',receivedSamples);
             setappdata(recordingFigure,'SessionResumeState',state);
         end
         set(handles.t_msg,'String','Session stopped');
@@ -661,6 +666,8 @@ if saveRec
     recSession.nM       = nM;
     recSession.nR       = nR;
     recSession.nCh      = nCh;
+    recSession.receivedSamples = receivedSamples;
+    recSession.expectedSamples = round(sF*(cT+rT)*nR);
     if isfield(handles,'vCh')
         recSession.vCh = handles.vCh;
     end
@@ -690,15 +697,33 @@ if saveRec
         recSession.ramp.rampFeature = 'tmabs';
     end
     
-    [filename, pathname] = uiputfile({'*.mat','MAT-files (*.mat)'},'Save as', 'Untitled.mat');
-    if isequal(filename,0) || isequal(pathname,0)
-        recSession.tdata = recSessionData;
-        disp('User pressed cancel')
-    else
-        disp(['User selected ', fullfile(pathname, filename)])
-        recSession.tdata = recSessionData;
-        save([pathname,filename],'recSession');
+    % Retain channel identity, colours and physical HD geometry for review.
+    if isOTB400(deviceName)
+        if isfield(afeSettings,'objOT') && ~isempty(afeSettings.objOT)
+            recSession.OTB400Config=afeSettings.objOT.config;
+        elseif isfield(afeSettings,'OTB400Config')
+            recSession.OTB400Config=afeSettings.OTB400Config;
+        end
+        if isfield(recSession,'OTB400Config') && isfield(recSession.OTB400Config,'Electrodes')
+            recSession.OTB400Electrodes=recSession.OTB400Config.Electrodes;
+        elseif isfield(afeSettings,'OTB400Electrodes')
+            recSession.OTB400Electrodes=afeSettings.OTB400Electrodes;
+        end
     end
+    if isappdata(recordingFigure,'OTBChannelLabels')
+        recSession.ChannelLabels=getappdata(recordingFigure,'OTBChannelLabels');
+    end
+    traces=flipud(findobj(handles.a_t0,'Type','line'));
+    if numel(traces)==nCh
+        recSession.ChannelColors=zeros(nCh,3);
+        for ch=1:nCh
+            recSession.ChannelColors(ch,:)=get(traces(ch),'Color');
+        end
+    end
+    recSession.tdata = recSessionData;
+    summaryFigure=RecordingSession_Summary(cdata,sF,cT,rT,nR,mov,receivedSamples,recSession);
+    % Keep the original Save as prompt; the summary button retries if cancelled.
+    RecordingSession_SaveSummary(summaryFigure);
     
     if trainWithVr
         fclose(handles.vreCommunication);

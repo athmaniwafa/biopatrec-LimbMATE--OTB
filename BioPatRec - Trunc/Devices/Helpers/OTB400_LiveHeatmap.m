@@ -38,8 +38,28 @@ function OTB400_LiveHeatmap(action, fig)
             end
         end
     end
+    offset=0;
+    for k=1:numel(st.contactMaps)
+        grid=st.contactMaps{k};
+        first=grid(find(isfinite(grid),1));
+        label=regexp(st.channelLabels{first},'^HD\d+','match','once');
+        [rows,cols]=size(grid);
+        for x=0:cols
+            line(hax,[offset+x+.5 offset+x+.5],[.5 rows+.5], ...
+                'Color',[.7 .7 .7],'HitTest','off');
+        end
+        for y=0:rows
+            line(hax,[offset+.5 offset+cols+.5],[y+.5 y+.5], ...
+                'Color',[.7 .7 .7],'HitTest','off');
+        end
+        text(hax,offset+(cols+1)/2,.2, ...
+            label, ...
+            'HorizontalAlignment','center','VerticalAlignment','bottom', ...
+            'FontSize',8,'Clipping','off','Tag','OTBMatrixTitle');
+        offset=offset+cols+1;
+    end
     hold(hax,'off');
-    title(hax,'Live amplitude');
+    title(hax,'');
 
     d = struct('hImg',hImg,'hax',hax,'gmap',gmap,'present',present,'limit',0.01);
     setappdata(hf,'heat',d);
