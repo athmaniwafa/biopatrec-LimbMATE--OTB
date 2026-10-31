@@ -89,6 +89,25 @@ axis off
 % Choose default command line output for GUI_BioPatRec
 handles.output = hObject;
 
+% Add a dedicated offline session viewer below the existing actions.
+set(hObject,'Units','pixels');
+windowPosition=get(hObject,'Position');
+children=get(hObject,'Children');
+for child=children'
+    if isprop(child,'Units') && isprop(child,'Position')
+        set(child,'Units','pixels');
+        position=get(child,'Position'); position(2)=position(2)+65;
+        set(child,'Position',position);
+    end
+end
+windowPosition(4)=windowPosition(4)+65;
+set(hObject,'Position',windowPosition);
+reference=getpixelposition(handles.pb_RecordingSession);
+handles.pb_VisualizeSessionData=uicontrol(hObject,'Style','pushbutton', ...
+    'Units','pixels','Position',[reference(1) 25 reference(3) reference(4)], ...
+    'String','Visualize session data','Tag','pb_VisualizeSessionData', ...
+    'FontSize',get(handles.pb_RecordingSession,'FontSize'), ...
+    'Callback',@pb_VisualizeSessionData_Callback);
 % Update handles structure
 guidata(hObject, handles);
 
@@ -146,3 +165,10 @@ function pb_PatRec_DefaultSimul_Callback(hObject, eventdata, handles)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
 UseDefaults(handles.pb_PatRec_DefaultSimul, 'true');
+
+function pb_VisualizeSessionData_Callback(hObject,eventdata)
+    try
+        RecordingSession_OpenSummary();
+    catch ME
+        errordlg(ME.message,'Visualize session data','modal');
+    end
