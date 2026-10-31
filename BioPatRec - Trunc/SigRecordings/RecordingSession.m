@@ -501,22 +501,19 @@ while ex <= nM
         end
         
 
-        % Stop acquisition
+                % Stop acquisition. OTB400: the cleanup object stops the device.
+        % SQ+ keeps its connection open between movements (it is stopped
+        % once, after the last movement).
         if isOTB400(deviceName)
             clear movementCleanup;
-        else
-
-        % Stop acquisition. SQ+ keeps its connection open between
-        % movements (it is stopped once, after the last movement).
-        if ~isSQplus(deviceName)
-
+        elseif ~isSQplus(deviceName)
             dev.stop();
         end
         if useAcceleGlove
             acceleGlove.stop_acquisition();
         end
-    end
-    
+    end                                   % end of: if NI ... else (adapter)
+
     if strcmp(ComPortType,'NI')
         error = 0;
         if ~s.IsDone
@@ -526,10 +523,10 @@ while ex <= nM
             delete(lh);
         end
         if strcmp(deviceName, 'Thalmic MyoBand')
-             MyoClient('StopSampling');
+            MyoClient('StopSampling');
         end
     end
-    
+
     if exist('error', 'var') && error == 1
         errordlg('Error occurred during the acquisition!','Error');
         return
@@ -537,7 +534,7 @@ while ex <= nM
         if isvalid(handles.a_t0)
             DataShow(handles, allData, sF, sTall);
         end
-        
+
         if movRepeatDlg
             prompt = {'Do you want to record this movement again? (y/n)'};
             dlg_title = 'Repeat?';
@@ -554,7 +551,7 @@ while ex <= nM
         end
         allData = [];
     end
-end
+end                                       % end of: while ex <= nM
 
 % SQ+: all movements done, now stop the stream and close the connection
 if isSQplus(deviceName) && exist('dev','var') && ~isempty(dev)
