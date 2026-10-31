@@ -9,6 +9,7 @@ classdef OTB400Adapter < DeviceInterface
             obj.nCh = nCh;
         end
         function start(obj, cfg)
+            obj.objOT.startAcquisitionEMG();
         end
         function data = read(obj, n)
             data_raw = obj.objOT.getEMG_data_TW_float(n);
@@ -19,7 +20,10 @@ classdef OTB400Adapter < DeviceInterface
             end
         end
         function stop(obj)
-            try, obj.objOT.stopAcquisition(); catch, end
+            obj.objOT.stopAcquisitionEMG();
+        end
+        function flush(obj)
+            obj.objOT.flushInput();
         end
         function disconnect(obj)
             try, obj.objOT.disconnectBTdevice(); catch, end
@@ -27,20 +31,11 @@ classdef OTB400Adapter < DeviceInterface
     end
     methods (Static)
         function [adapter, nCh, vCh] = configure(handles, deviceName)
-            if strcmp(deviceName, 'OTB400_HD')
-                choice = questdlg('Select number of channels:', 'OTB400 HD', '64', '128', '64');
-                if isempty(choice), error('User cancelled OTB selection.'); end
-                nCh = str2double(choice);
-                [electrodes, ok] = OTB400_SelectElectrodes(nCh);
-                if ~ok, error('User cancelled electrode selection.'); end
-                set(handles.et_chs, 'String', choice);
-                
-                objOT = OT_Acquire('hd', nCh, 120, electrodes);
-            else
-                nCh = 8;
-                set(handles.et_chs, 'String', '8');
-                objOT = OT_Acquire('bipolar', nCh, 120);
-            end
+            [selection,ok] = OTB400_SelectInputs(deviceName);
+            if ~ok, error('User cancelled OTB selection.'); end
+            objOT = OT_Acquire('inputs',selection,120);
+            nCh = objOT.Nch;
+            set(handles.et_chs,'String',num2str(nCh));
             vCh = 1:nCh;
             
             % Force sample rate

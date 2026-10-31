@@ -691,6 +691,16 @@ function startRecording(handles, afeSettings)
 
     % --- SQ+ matrix: install the HD map (8x8 BIG / 13x5 SMALL) ---
     sqHeatmap = false;
+    if isOTB400(deviceName) && isfield(afeSettings,'OTB400Electrodes')
+        el = afeSettings.OTB400Electrodes;
+        if isfield(afeSettings,'objOT') && ~isempty(afeSettings.objOT)
+            layout = OTB400_ChannelLayout(afeSettings.objOT.config);
+            el.HDColumns = layout.HDColumns;
+            el.ChannelLabels = layout.Labels;
+            el.LocalNumbers = layout.LocalNumbers;
+        end
+        OTB400_ChannelMap('install', handles.figure1, handles.a_t0, nCh, el);
+    end
     if isSQplus(deviceName) && nCh == 64 && isfield(afeSettings,'OTB400Electrodes')
         sqHeatmap = true;
         el = afeSettings.OTB400Electrodes;

@@ -56,7 +56,8 @@ p_t0 = handles.p_t0;
 p_f0 = handles.p_f0;
 
 % Get data from tempData and add to allData global vector
-if(isempty(allData))                                                   % Fist DAQ callback
+firstWindow=isempty(allData);
+if(firstWindow)                                                   % Fist DAQ callback
     timeStamps = [];
     barChartParams = [];
     barChartParams.min = 0;
@@ -64,6 +65,15 @@ if(isempty(allData))                                                   % Fist DA
     plotGain = 10000000;
 end
 tempData = event.Data;
+% Store every window, even when rendering is throttled.
+allData = [allData; tempData];
+timeStamps = [timeStamps; event.TimeStamps];
+if isfield(handles,'deviceName') && isOTB400(handles.deviceName)
+    if ~firstWindow && isfield(handles,'lastOTBRender') && toc(handles.lastOTBRender)<0.25
+        return;
+    end
+    % Restart the render timer only after the GUI has finished drawing.
+end
 
 % --- FIX FOR LIMBMATE / OTB MAP CRASH ---
 mapAx = [];
@@ -83,9 +93,6 @@ if isscalar(mapAx) && isgraphics(mapAx, 'axes') && ~isempty(tempData)
     OTB400_ChannelMap('preview', mapAx, tempData);
 end
 % ----------------------------------------
-
-allData = [allData; tempData];
-timeStamps = [timeStamps; event.TimeStamps];
 
 %% Status bar update
 if isfield(handles, 'fast') && handles.fast
@@ -194,9 +201,17 @@ end
 
 %% plot a new tWs sized window
 if strcmp(plotType,'Raw Signal')
+    rawGains=repmat(plotGain,1,nCh);
+    frequencyGains=repmat(Kf,1,nCh);
+    plotFigure=ancestor(handles.a_t0,'figure');
+    if isappdata(plotFigure,'OTBChannelLayout')
+        channelLayout=getappdata(plotFigure,'OTBChannelLayout');
+        rawGains=OTB400_DisplayScale(tempData,channelLayout,ampPP);
+        frequencyGains=OTB400_DisplayScale(m,channelLayout,ampPP);
+    end
     for j = 1 : nCh
-        if isvalid(p_t0(j)), set(p_t0(j),'YData',tempData(:,j)*plotGain + offVector(j)); end
-        if isvalid(p_f0(j)), set(p_f0(j),'YData',m(:,j)*Kf + offVector(j)); end
+        if isvalid(p_t0(j)), set(p_t0(j),'YData',tempData(:,j)*rawGains(j) + offVector(j)); end
+        if isvalid(p_f0(j)), set(p_f0(j),'YData',m(:,j)*frequencyGains(j) + offVector(j)); end
     end
 end
 
@@ -229,9 +244,14 @@ if strcmp(plotType,'Bar Chart')
 end
 
 mainFig = ancestor(handles.a_t0,'figure');
+setappdata(handles.a_t0,'OTBOffsetsAreNative',true);
 if strcmp(plotType,'Raw Signal') && isappdata(mainFig,'OTBRecordingRefresh')
     refreshTrace = getappdata(mainFig,'OTBRecordingRefresh');
     refreshTrace();
 end
+OTB400_ApplyChannelLabels(handles, plotType);
 drawnow expose
+if isfield(handles,'deviceName') && isOTB400(handles.deviceName)
+    handles.lastOTBRender=tic;
+end
 end

@@ -77,13 +77,15 @@ function [channelMap, contactMaps] = cmPhysicalMap(nCh, electrodes)
          5  6  7  8 16; ...
          4  3  2  1 NaN];
 
-    if ~ismember(nCh,[64 128])
-        error('OTB400_ChannelMap: only 64 or 128 channels are supported.');
+    if ~ismember(nCh,[64 128 192 256])
+        error('OTB400_ChannelMap: expected complete 64-channel matrices.');
     end
     nMatrices=nCh/64;
     contactMaps=cell(1,nMatrices);
     for k=1:nMatrices
-        fld=sprintf('MULTIPLE_IN%d',k);
+        inputNumber=k;
+        if isfield(electrodes,'HDInputNumbers'), inputNumber=electrodes.HDInputNumbers(k); end
+        fld=sprintf('MULTIPLE_IN%d',inputNumber);
         if ~isfield(electrodes,fld)
             error('OTB400_ChannelMap: missing electrode type for %s.',fld);
         end
@@ -118,11 +120,22 @@ function cmInstall(fig, ax, nCh, electrodes)
     if ~ishghandle(fig) || ~ishghandle(ax)
         error('OTB400_ChannelMap: invalid figure or axes handle.');
     end
-    if ~isstruct(electrodes) || ~isfield(electrodes,'MULTIPLE_IN1') || ...
-            (nCh == 128 && ~isfield(electrodes,'MULTIPLE_IN2'))
+    if ~isstruct(electrodes)
         error('OTB400_ChannelMap: missing MULTIPLE IN electrode choice.');
     end
-    [channelMap, contactMaps] = cmPhysicalMap(nCh, electrodes);
+    nHD = nCh;
+    columns = 1:nCh;
+    if isfield(electrodes,'HDColumns')
+        columns = [electrodes.HDColumns{:}];
+        nHD = numel(columns);
+    end
+    [channelMap, contactMaps] = cmPhysicalMap(nHD, electrodes);
+    present = isfinite(channelMap);
+    channelMap(present) = columns(channelMap(present));
+    for k=1:numel(contactMaps)
+        present = isfinite(contactMaps{k});
+        contactMaps{k}(present) = columns(contactMaps{k}(present));
+    end
     cmRemove(fig);
 
     figPos = getpixelposition(fig);
@@ -130,25 +143,33 @@ function cmInstall(fig, ax, nCh, electrodes)
     % Fits the available blank area left of the original HD plot.
     width = min(300, max(190, axesPos(1)-15));
     x = max(5, axesPos(1)-width-6);
-    height = min(figPos(4)-65, 150+floor(nCh/64)*245);
+    height = min(figPos(4)-65, 150+floor(nHD/64)*245);
     height = max(230,height);
     y = max(5, min(axesPos(2),figPos(4)-height-44));
     btnY = min(figPos(4)-31, y+height+5);
 
     toggle = uicontrol('Parent',fig,'Style','togglebutton','Units','pixels', ...
         'Position',[x btnY width 27],'String','Mostra elettrodi HD', ...
-        'Value',0,'Callback',@(src,evt)cmToggle(fig,src));
+        'Value',1,'Visible','off','Callback',@(src,evt)cmToggle(fig,src));
     panel = uipanel('Parent',fig,'Units','pixels','Position',[x y width height], ...
-        'Title','Elettrodi HD / Canali visibili','Visible','off');
+        'Title','Elettrodi HD / Canali visibili','Visible','on');
 
     st = struct();
     st.map = channelMap;
     st.contactMaps = contactMaps;
     st.nCh = nCh;
+    st.nHD = nHD;
+    st.localNumbers = mod((1:nCh)-1,64)+1;
+    st.channelLabels = arrayfun(@(c) sprintf('HD%d - %d',ceil(c/64),mod(c-1,64)+1), ...
+        1:nCh,'UniformOutput',false);
+    if isfield(electrodes,'ChannelLabels')
+        st.channelLabels = electrodes.ChannelLabels;
+        st.localNumbers = electrodes.LocalNumbers;
+    end
     st.fig = fig;
     st.axes = ax;
     st.enabled = true(1,nCh);
-    st.selected = 1;
+    st.selected = columns(1);
     st.hovered = 0;
     st.toggle = toggle;
     st.panel = panel;
@@ -175,7 +196,7 @@ function cmInstall(fig, ax, nCh, electrodes)
         'Position',[17+(width-25)/2 7 (width-25)/2 26], ...
         'String','Tutti OFF', 'Callback',@(src,evt)cmAll(fig,false));
 
-    nMatrices = nCh/64;
+    nMatrices = nHD/64;
     areaBottom = 94;
     usableHeight = height-areaBottom-8;
     areaH = usableHeight/nMatrices;
@@ -187,11 +208,9 @@ function cmInstall(fig, ax, nCh, electrodes)
     xSmall = [41 62 83 104 125];
     ySmall = [36 65 94 123 152 181 210 239 269 298 327 356 385];
     for k=1:nMatrices
-        if k==1
-            sensorType = upper(strtrim(char(electrodes.MULTIPLE_IN1)));
-        else
-            sensorType = upper(strtrim(char(electrodes.MULTIPLE_IN2)));
-        end
+        inputNumber=k;
+        if isfield(electrodes,'HDInputNumbers'), inputNumber=electrodes.HDInputNumbers(k); end
+        sensorType = upper(strtrim(char(electrodes.(sprintf('MULTIPLE_IN%d',inputNumber)))));
         if ~ismember(sensorType,{'BIG','SMALL'})
             error('OTB400_ChannelMap: unknown electrode type %s.',sensorType);
         end
@@ -206,7 +225,7 @@ function cmInstall(fig, ax, nCh, electrodes)
         subY = areaBottom + (nMatrices-k)*areaH;
         uicontrol('Parent',panel,'Style','text','Units','pixels', ...
             'Position',[8 subY+areaH-21 width-16 19], ...
-            'String',sprintf('MULTIPLE IN%d - %s',k,sensorType), ...
+            'String',sprintf('MULTIPLE IN%d - %s',inputNumber,sensorType), ...
             'FontWeight','bold');
 
         imgAxes = axes('Parent',panel,'Units','pixels', ...
@@ -253,7 +272,7 @@ function cmInstall(fig, ax, nCh, electrodes)
                 % The image already contains the local numbering.
                 % Fallback numbering when the file is absent:
                 if ~hasImage
-                    text(imgAxes,px,py,num2str(mod(globalCh-1,64)+1), ...
+                    text(imgAxes,px,py,num2str(st.localNumbers(globalCh)), ...
                         'HorizontalAlignment','center', ...
                         'VerticalAlignment','middle','FontSize',7, ...
                         'HitTest','off');
@@ -388,11 +407,8 @@ end
 function cmRefresh(fig)
     st=cmGet(fig);
     for ch=1:st.nCh, cmPaintHotspot(fig,ch); end
-    k=floor((st.selected-1)/64)+1;
-    local=mod(st.selected-1,64)+1;
-    set(st.info,'String',sprintf('IN%d: elettrodo %d = canale BioPatRec %d', ...
-        k,local,st.selected));
-    set(st.checkbox,'String',sprintf('Visualizza IN%d / %d',k,local), ...
+    set(st.info,'String',st.channelLabels{st.selected});
+    set(st.checkbox,'String',['Visualizza ' st.channelLabels{st.selected}], ...
         'Value',double(st.enabled(st.selected)));
     cmPaint(fig);
 end
@@ -401,7 +417,7 @@ function cmPaintHotspot(fig,ch)
     st=cmGet(fig);
     if ch<1 || ch>st.nCh,return;end
     h=st.hotspots{ch};
-    if ~ishghandle(h),return;end
+    if isempty(h) || ~ishghandle(h),return;end
     if ch==st.hovered
         set(h,'FaceColor',[1 0.85 0.15],'FaceAlpha',0.5, ...
             'EdgeColor',[0.85 0.55 0],'LineWidth',2);
@@ -495,7 +511,7 @@ function cmPaint(fig)
             for cc=1:size(st.map,2)
                 if ~isfinite(st.map(rr,cc)), continue; end
                 globalCh = st.map(rr,cc);
-                local = mod(globalCh-1,64)+1;
+                local = st.localNumbers(globalCh);
 
                 label = text(st.axes,cc,rr,num2str(local), ...
                     'HorizontalAlignment','center', ...
@@ -510,14 +526,20 @@ function cmPaint(fig)
                 setappdata(label,'OTB400_GlobalChannel',globalCh);
             end
         end
-        if st.nCh==128
-            gapX=size(st.contactMaps{1},2)+1;
-            line(st.axes,[gapX gapX],[.5 size(st.map,1)+.5], ...
-                'Color',[1 1 1],'LineWidth',3,'HitTest','off');
-            title(st.axes,'IN1 (sinistra)  /  IN2 (destra)');
-        else
-            title(st.axes,'MULTIPLE IN1');
+        groupTitles=cell(1,numel(st.contactMaps));
+        offset=0;
+        for k=1:numel(st.contactMaps)
+            values=st.contactMaps{k}; first=values(find(isfinite(values),1));
+            groupTitles{k}=regexp(st.channelLabels{first},'^HD\d+','match','once');
+            offset=offset+size(st.contactMaps{k},2);
+            if k<numel(st.contactMaps)
+                gapX=offset+1;
+                line(st.axes,[gapX gapX],[.5 size(st.map,1)+.5], ...
+                    'Color',[1 1 1],'LineWidth',3,'HitTest','off');
+                offset=offset+1;
+            end
         end
+        title(st.axes,strjoin(groupTitles,' / '));
         hold(st.axes,'off');
     else
         set(st.plotImage,'CData',img);

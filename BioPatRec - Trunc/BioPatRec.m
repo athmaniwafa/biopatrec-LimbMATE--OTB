@@ -26,9 +26,26 @@
 % 2011-22-06 / Max Ortiz  / Software name changed from EMG_AQ to BioPatRec
 % 2018-09-07 / Andreas Eiler / change current folder due to writing permissions of cdata
 % YYYY-DD-MM / Author / Update
+% Refuse a nested restart while callbacks still own the recording globals.
+recordingFigures=findall(0,'Type','figure');
+for recordingIndex=1:numel(recordingFigures)
+    if isappdata(recordingFigures(recordingIndex),'RecordingInProgress') && ...
+            getappdata(recordingFigures(recordingIndex),'RecordingInProgress')
+        error('BioPatRec:AlreadyRecording', ...
+            'Arrestare la registrazione con Disconnect prima di riavviare BioPatRec.');
+    end
+end
 close all;
 clear all;
 
+% Prefer this checkout over other BioPatRec copies already on the path.
+activeRoot=fileparts(mfilename('fullpath'));
+addpath(activeRoot,fullfile(activeRoot,'SigRecordings'), ...
+    fullfile(activeRoot,'SigRecordings','HD'),fullfile(activeRoot,'Devices'), ...
+    fullfile(activeRoot,'Devices','Helpers'),fullfile(activeRoot,'Devices','Drivers'),'-begin');
+cd(activeRoot);
+rehash;
+fprintf('[BioPatRec] Plot callback: %s\n',which('RecordingSession_ShowData'));
 %EMG_AQ
 GUI_BioPatRec;
 

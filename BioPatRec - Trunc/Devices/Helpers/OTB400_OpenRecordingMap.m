@@ -9,6 +9,26 @@ if ~isfield(h, 'output') || ~isscalar(h.output) || ...
 end
 
 mainFig = h.output;
+if isappdata(mainFig,'OTBChannelLabels'), rmappdata(mainFig,'OTBChannelLabels'); end
+if isappdata(mainFig,'OTBChannelLayout'), rmappdata(mainFig,'OTBChannelLayout'); end
+layout = [];
+if isOTB400(afeSettings.name)
+    if isfield(afeSettings,'objOT') && ~isempty(afeSettings.objOT)
+        config = afeSettings.objOT.config;
+    elseif isfield(afeSettings,'OTB400Config')
+        config = afeSettings.OTB400Config;
+    else
+        config = struct('NumChannels',afeSettings.channels);
+        if strcmp(char(afeSettings.name),'OTB400_HD')
+            config.NumMatrices = afeSettings.channels/64;
+        else
+            config.NumBipolar = afeSettings.channels;
+        end
+    end
+    layout = OTB400_ChannelLayout(config);
+    setappdata(mainFig,'OTBChannelLabels',layout.Labels);
+    setappdata(mainFig,'OTBChannelLayout',layout);
+end
 
 % Reset previous state
 OTB400_ChannelMap('remove', mainFig);
@@ -30,7 +50,7 @@ if isSQmatrix
     if ~isfield(afeSettings,'SQDisplay') || ~strcmp(afeSettings.SQDisplay,'session_map')
         return
     end
-elseif ~strcmp(char(afeSettings.name), 'OTB400_HD')
+elseif isempty(layout)
     return
 end
 
@@ -40,7 +60,8 @@ if ~isfield(h, 'a_t0') || ~isscalar(h.a_t0) || ...
         'Il grafico della registrazione HD non è valido.');
 end
 
-if ~isfield(afeSettings, 'OTB400Electrodes')
+hasHD = isempty(layout) || ~isempty(layout.HDColumns);
+if hasHD && ~isfield(afeSettings, 'OTB400Electrodes')
     error('Seleziona prima gli elettrodi HD.');
 end
 
@@ -53,24 +74,41 @@ panel = uipanel( ...
     'BackgroundColor', [1 1 1], ...
     'Title', 'Elettrodi HD');
 
+if isempty(layout)
+    layout = OTB400_ChannelLayout(struct('NumChannels',64,'NumMatrices',1));
+end
+groupPanel=OTB400_ChannelGroups(panel,layout,@highlightTrace);
+groupPosition=get(groupPanel,'Position');
+groupBottom=groupPosition(2);
+
 filterButton = uicontrol( ...
     'Parent',panel, ...
     'Style','togglebutton', ...
     'Units','normalized', ...
-    'Position',[0.05 0.86 0.90 0.10], ...
+    'Position',[0.05 groupBottom-.11 0.90 0.09], ...
     'String','Solo selezionati', ...
     'Value',0, ...
     'Callback',@onFilter);
 
+mapAx = [];
+mapMotion = [];
+if hasHD
 mapAx = axes( ...
     'Parent', panel, ...
     'Units', 'normalized', ...
-    'Position', [0.05 0.06 0.90 0.72]);
+    'Position', [0.05 0.04 0.90 max(.15,groupBottom-.24)]);
 
 setappdata(mapAx, 'OTB400_UniformBackground', true);
 
+electrodes = afeSettings.OTB400Electrodes;
+if ~isempty(layout)
+    electrodes.HDColumns = layout.HDColumns;
+    electrodes.HDInputNumbers = layout.HDInputNumbers;
+    electrodes.ChannelLabels = layout.Labels;
+    electrodes.LocalNumbers = layout.LocalNumbers;
+end
 OTB400_ChannelMap('install', mainFig, mapAx, ...
-    afeSettings.channels, afeSettings.OTB400Electrodes);
+    afeSettings.channels, electrodes);
 
 st = getappdata(mainFig, 'OTB400_ChannelMapState');
 set(st.panel, 'Visible', 'off');
@@ -83,6 +121,10 @@ OTB400_ChannelMap('preview', mapAx, ...
 
 mapMotion = get(mainFig, 'WindowButtonMotionFcn');
 set(mainFig, 'WindowButtonMotionFcn', @onMotion);
+else
+    set(filterButton,'Visible','off');
+    set(panel,'Title','Ingressi bipolari');
+end
 
 setappdata(mainFig, 'OTBRecordingRefresh', @highlightTrace);
 
@@ -148,7 +190,7 @@ end
         if ~isgraphics(panel)
             return
         end
-        mapMotion(src, evt);
+        if isa(mapMotion,'function_handle'), mapMotion(src, evt); end
         highlightTrace();
     end
 
@@ -157,7 +199,8 @@ end
             return
         end
 
-        state = getappdata(mainFig, 'OTB400_ChannelMapState');
+        state = struct('map',[],'hovered',0,'channelLabels',{layout.Labels});
+        if hasHD, state = getappdata(mainFig,'OTB400_ChannelMapState'); end
 
         marked = false(1,afeSettings.channels);
         if isfield(state,'marked')
@@ -173,17 +216,39 @@ end
 
         traces = flipud(findobj(h.a_t0, 'Type', 'line'));
 
-        if numel(traces) ~= afeSettings.channels
-            return
+        channels = 1:afeSettings.channels;
+        if isappdata(h.a_t0,'OTBTraceColumns')
+            channels = getappdata(h.a_t0,'OTBTraceColumns');
+        end
+        if numel(traces) ~= numel(channels), return; end
+        hdChannels = state.map(isfinite(state.map));
+        visible = getappdata(mainFig,'OTBGroupMask');
+        if onlySelected
+            visible(hdChannels) = visible(hdChannels) & marked(hdChannels);
+        end
+        displayColumns = channels(visible(channels));
+        spacing = 5;
+        if isappdata(h.a_t0,'OTBTraceSpacing'), spacing=getappdata(h.a_t0,'OTBTraceSpacing'); end
+        ticks = (0:numel(displayColumns)-1)*spacing;
+        setappdata(h.a_t0,'OTBDisplayColumns',displayColumns);
+        setappdata(h.a_t0,'OTBDisplayTicks',ticks);
+        set(h.a_t0,'YTick',ticks,'YTickLabel',state.channelLabels(displayColumns), ...
+            'YLim',[-.6*spacing max(.6*spacing,(numel(ticks)-.4)*spacing)]);
+        nativeOffsets = true;
+        if isappdata(h.a_t0,'OTBOffsetsAreNative')
+            nativeOffsets = getappdata(h.a_t0,'OTBOffsetsAreNative');
         end
 
         for k = 1:numel(traces)
             lineHandle = traces(k);
+            ch = channels(k);
+            if nativeOffsets, setappdata(lineHandle,'OTBCurrentOffset',(ch-1)*spacing); end
 
-            if onlySelected && ~marked(k)
+            if ~visible(ch)
                 set(lineHandle,'Visible','off');
             else
                 set(lineHandle,'Visible','on');
+                moveTrace(lineHandle,ch,displayColumns,spacing,nativeOffsets);
             end
 
             if ~isappdata(lineHandle, 'OTBOriginalStyle')
@@ -195,33 +260,47 @@ end
 
             style = getappdata(lineHandle, 'OTBOriginalStyle');
 
-            if active(k)
+            if active(ch)
                 set(lineHandle, 'Color', [0.90 0.10 0.10], 'LineWidth', 2);
             else
                 set(lineHandle, 'Color', style.Color, 'LineWidth', style.LineWidth);
             end
         end
 
-        frequencyLines = flipud(findobj(h.a_f0,'Type','line'));
+        frequencyLines = [];
+        if isfield(h,'a_f0') && isgraphics(h.a_f0,'axes')
+            frequencyLines = flipud(findobj(h.a_f0,'Type','line'));
+        end
 
         if numel(frequencyLines) == numel(marked)
             for k = 1:numel(frequencyLines)
-                if onlySelected && ~marked(k)
+                if nativeOffsets, setappdata(frequencyLines(k),'OTBCurrentOffset',(k-1)*spacing); end
+                if ~visible(k)
                     set(frequencyLines(k),'Visible','off');
                 else
                     set(frequencyLines(k),'Visible','on');
+                    moveTrace(frequencyLines(k),k,displayColumns,spacing,nativeOffsets);
                 end
             end
+            set(h.a_f0,'YTick',ticks,'YTickLabel',state.channelLabels(displayColumns), ...
+                'YLim',[-.6*spacing max(.6*spacing,(numel(ticks)-.4)*spacing)]);
+        end
+        setappdata(h.a_t0,'OTBOffsetsAreNative',false);
+
+        if numel(get(h.a_t0,'YTick')) == numel(displayColumns)
+            set(h.a_t0, 'YTickLabel', state.channelLabels(displayColumns));
         end
 
-        channels = 1:numel(traces);
+        set(panel, 'Title', sprintf('Ingressi - %d canali visibili', numel(displayColumns)));
+    end
 
-        labels = arrayfun(@(k) sprintf('IN%d/%d', ...
-            ceil(k/64), mod(k-1,64)+1), ...
-            channels, 'UniformOutput', false);
-
-        set(h.a_t0, 'YTickLabel', labels);
-
-        set(panel, 'Title', sprintf('Elettrodi HD - %d canali selezionati', nnz(marked)));
+    function moveTrace(lineHandle,ch,columns,spacing,nativeOffsets)
+        oldOffset = (ch-1)*spacing;
+        if ~nativeOffsets && isappdata(lineHandle,'OTBCurrentOffset')
+            oldOffset = getappdata(lineHandle,'OTBCurrentOffset');
+        end
+        newOffset = (find(columns==ch,1)-1)*spacing;
+        set(lineHandle,'YData',get(lineHandle,'YData')-oldOffset+newOffset);
+        setappdata(lineHandle,'OTBCurrentOffset',newOffset);
     end
 end

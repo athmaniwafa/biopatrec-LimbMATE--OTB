@@ -1181,6 +1181,11 @@ function m_vRef_Callback(hObject, eventdata, handles)
 % --- Executes on button press in pb_disconnect.
 % --- Executes on button press in pb_disconnect.
 function pb_disconnect_Callback(hObject, eventdata, handles)
+    if isgraphics(hObject)
+        recordingFigure=ancestor(hObject,'figure');
+        if isgraphics(hObject,'figure'), recordingFigure=hObject; end
+        if isgraphics(recordingFigure), setappdata(recordingFigure,'RecordingStopRequested',true); end
+    end
     global GLOBAL_ADAPTER;
     global GLOBAL_AFE_SETTINGS;
     

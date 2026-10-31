@@ -15,6 +15,9 @@
 
 function [cdata, sF, sensorData] = RecordingSession(varargin)
 
+recordingWindow=varargin{6};
+recordingFigure=recordingWindow.output;
+uiCleanup=RecordingSession_Cleanup('ui',recordingFigure); %#ok<NASGU>
 global       handles;
 global       allData;
 global       timeStamps;
@@ -213,7 +216,7 @@ end
 %% Starting Session..
 
 % --- START THE HARDWARE NOW (Pops up the mode selection) ---
-if isfield(afeSettings, 'adapter') && ~isempty(afeSettings.adapter)
+if isfield(afeSettings, 'adapter') && ~isempty(afeSettings.adapter) && ~isOTB400(deviceName)
     fprintf('[RecordingSession] Starting hardware adapter...\n');
     afeSettings.adapter.start(afeSettings);
 end
@@ -382,6 +385,10 @@ while ex <= nM
         
         % --- ADAPTER PATTERN ---
         dev = afeSettings.adapter;
+        if isOTB400(deviceName)
+            movementCleanup=RecordingSession_Cleanup('device',dev); %#ok<NASGU>
+            dev.start(afeSettings);
+        end
 
         % Discard data that piled up during countdown / plot setup,
         % so the plot starts at "now" instead of fast-forwarding.
@@ -401,7 +408,18 @@ while ex <= nM
                     acceleGlove.update();
                 end
 
-                cData = dev.read(tWs);
+                if ~isgraphics(recordingFigure) || getappdata(recordingFigure,'RecordingStopRequested')
+                    error('BioPatRec:RecordingCancelled','Registrazione arrestata.');
+                end
+                try
+                    cData = dev.read(tWs);
+                catch ME
+                    if strcmp(ME.identifier,'OT_Acquire:Stopped') && ...
+                            (~isgraphics(recordingFigure) || getappdata(recordingFigure,'RecordingStopRequested'))
+                        error('BioPatRec:RecordingCancelled','Registrazione arrestata.');
+                    end
+                    rethrow(ME);
+                end
                 acquireEvent.Data = cData;
             
                 if useAcceleGlove
@@ -483,7 +501,11 @@ while ex <= nM
         end
         
         % Stop acquisition
-        dev.stop();
+        if isOTB400(deviceName)
+            clear movementCleanup;
+        else
+            dev.stop();
+        end
         if useAcceleGlove
             acceleGlove.stop_acquisition();
         end

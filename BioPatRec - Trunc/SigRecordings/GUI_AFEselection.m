@@ -10,6 +10,10 @@
 % GUI for AFE Selection
 
 function varargout = GUI_AFEselection(varargin)
+% Resolve device dependencies even when this GUI is opened directly or an
+% existing window dispatches a callback after the MATLAB path was reset.
+deviceRoot = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'Devices');
+addpath(deviceRoot, fullfile(deviceRoot, 'Helpers'), fullfile(deviceRoot, 'Drivers'));
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
 gui_State = struct('gui_Name',       mfilename, ...
@@ -115,6 +119,13 @@ if isfield(handles, 'objOT') && ~isempty(handles.objOT)
     AFE_settings.objOT = handles.objOT;
 else
     AFE_settings.objOT = [];
+end
+if isOTB400(deviceName) && isempty(AFE_settings.objOT)
+    errordlg('Selezionare nuovamente il dispositivo OTB e completare la configurazione.', 'OTB400');
+    return;
+end
+if isOTB400(deviceName)
+    AFE_settings.OTB400Config = AFE_settings.objOT.config;
 end
 
 if isfield(handles, 'objSQ') && ~isempty(handles.objSQ)
@@ -305,6 +316,11 @@ switch mode
         tempdata = cdata;
         save('cdata.mat','cdata','tempdata','sdata','sF','sT','nCh','ComPortType','deviceName','plotType','featureType');
     case 2
+        if isOTB400(deviceName) && ...
+                ismember(handles.objOT.mode,{'mixed','inputs'})
+            OTB400_MixedLive(handles.objOT);
+            return;
+        end
         try
             % Force GUI_Recordings_Image to open/return its exact current handles
             [~, hGUI_Rec] = GUI_Recordings_Image();
@@ -357,6 +373,23 @@ function pm_name_Callback(hObject, eventdata, handles)
 contents = cellstr(get(handles.pm_name,'String'));
 deviceName = char(contents{get(handles.pm_name,'Value')});
 
+% Release the previous USB owner before constructing another OTComm device.
+if isfield(handles, 'objOT') && ~isempty(handles.objOT)
+    try
+        handles.objOT.disconnectBTdevice();
+    catch ME
+        errordlg(sprintf('Impossibile chiudere la connessione OTB precedente: %s', ...
+            ME.message), 'OTB400');
+        return;
+    end
+    handles.objOT = [];
+end
+if isfield(handles, 'adapter') && ~isempty(handles.adapter)
+    try, handles.adapter.disconnect(); catch, end
+end
+handles.adapter = [];
+guidata(hObject, handles);
+
 if isfield(handles, 'nCh'), handles = rmfield(handles, 'nCh'); end
 if isfield(handles, 'vCh'), handles = rmfield(handles, 'vCh'); end
 if isfield(handles, 'OTB400Electrodes'), handles = rmfield(handles, 'OTB400Electrodes'); end
@@ -390,21 +423,13 @@ elseif strcmp(deviceName, 'ALC-24chs')
 end
 
 if isOTB400(deviceName)
-    if strcmp(deviceName, 'OTB400_HD')
-        choice = questdlg('Select number of channels:', 'OTB400 HD', '64', '128', '64');
-        if isempty(choice), return; end
-        nChSelected = str2double(choice);
-        [electrodes, ok] = OTB400_SelectElectrodes(nChSelected);
-        if ~ok, return; end
-        handles.nCh = nChSelected;
-        handles.vCh = 1:nChSelected;
-        handles.OTB400Electrodes = electrodes;
-        set(handles.et_chs, 'String', choice);
-    else
-        handles.nCh = 8;
-        handles.vCh = 1:8;
-        set(handles.et_chs, 'String', '8');
-    end
+    [inputSelection, ok] = OTB400_SelectInputs(deviceName);
+    if ~ok, return; end
+    inputConfig = OTB400_InputPlan(inputSelection);
+    handles.nCh = inputConfig.NumChannels;
+    handles.vCh = 1:handles.nCh;
+    handles.OTB400Electrodes = inputConfig.Electrodes;
+    set(handles.et_chs,'String',num2str(handles.nCh));
     
     srList = cellstr(get(handles.pm_sampleRate, 'String'));
     idxSR = find(strcmp(srList, '2048'), 1);
@@ -422,14 +447,10 @@ if isOTB400(deviceName)
 
     otDuration = 120;
     try
-        if contains(deviceName, 'HD')
-            electrodeConfig = handles.OTB400Electrodes;
-            objOT = OT_Acquire('hd', handles.nCh, otDuration, electrodeConfig);
-        else
-            objOT = OT_Acquire('bipolar', handles.nCh, otDuration);
-        end
+        objOT = OT_Acquire('inputs', inputSelection, otDuration);
         handles.objOT = objOT;
     catch ME
+        handles.objOT = [];
         errordlg(sprintf('Failed to initialize OTB400: %s', ME.message), 'OTB400 Error');
     end
 end
@@ -485,7 +506,7 @@ function pm_name_CreateFcn(hObject, eventdata, handles)
 if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
     set(hObject,'BackgroundColor','white');
 end
-deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LimbMate', 'OTB400_HD', 'OTB400_bipolar', 'SQ+'};
+deviceNames = {'AD2','AD3','MyoAmpF4F1','MyoAmpF4F2','MyoAmpF4F7','MyoAmpF4F7_Shielded','NeuroAmpF8F1','RHA2216','RHA2132','ADS1299','ADS_BP','Thalmic MyoBand','ALC-16chs','ALC-24chs', 'ADS_BP4', 'LimbMate', 'OTB400_HD', 'OTB400_bipolar', 'SQ+', 'OTB400_mixed'};
 set(hObject,'String',deviceNames);
 set(hObject,'Value',5);
 

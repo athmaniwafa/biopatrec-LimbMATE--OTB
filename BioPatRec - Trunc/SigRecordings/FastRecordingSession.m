@@ -11,6 +11,9 @@
 
 function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
 
+    recordingWindow=varargin{1};
+    recordingFigure=recordingWindow.output;
+    uiCleanup=RecordingSession_Cleanup('ui',recordingFigure); %#ok<NASGU>
     global       handles;
     global       allData;
     global       timeStamps;
@@ -18,6 +21,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     allData      = [];
     handles      = varargin{1};
     afeSettings  = varargin{2};
+    handles.OTBRecordingMap = OTB400_OpenRecordingMap(afeSettings, handles);
 
     % Get required informations from afeSettings structure
     nCh          = afeSettings.channels;
@@ -195,6 +199,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
 
         % --- ADAPTER PATTERN ---
         dev = afeSettings.adapter;
+        deviceCleanup=RecordingSession_Cleanup('device',dev); %#ok<NASGU>
         dev.start(afeSettings);
         
         samplesCounter = 0;
@@ -205,7 +210,18 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
                 acceleGlove.update();
             end
             
-            cdata = dev.read(tWs);
+            if ~isgraphics(recordingFigure) || getappdata(recordingFigure,'RecordingStopRequested')
+                break;
+            end
+            try
+                cdata = dev.read(tWs);
+            catch ME
+                if strcmp(ME.identifier,'OT_Acquire:Stopped') && ...
+                        (~isgraphics(recordingFigure) || getappdata(recordingFigure,'RecordingStopRequested'))
+                    break;
+                end
+                rethrow(ME);
+            end
             acquireEvent.Data = cdata;
             
             if useAcceleGlove
@@ -224,7 +240,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
         toc
 
         % Stop acquisition (leaves TCP socket open for SQ+)
-        dev.stop();
+        clear deviceCleanup;
         if useAcceleGlove
             acceleGlove.stop_acquisition();
         end
@@ -246,6 +262,7 @@ function [cdata, sF, sT, sensorData] = FastRecordingSession(varargin)
     cdata = allData;
     allData = [];                                                      
     
+    if ~isgraphics(recordingFigure), return; end
     %% Session finish..
     if isvalid(handles.t_msg)
         set(handles.t_msg,'String','Session Terminated');
