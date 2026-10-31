@@ -8,9 +8,13 @@ classdef OTB400Adapter < DeviceInterface
             obj.objOT = objOT;
             obj.nCh = nCh;
         end
-        function start(obj, cfg)
+
+        function start(obj, cfg) %#ok<INUSD>
+            % RecordingSession calls this at the start of every movement.
+            % (startAcquisitionEMG returns immediately if already started.)
             obj.objOT.startAcquisitionEMG();
         end
+
         function data = read(obj, n)
             data_raw = obj.objOT.getEMG_data_TW_float(n);
             if size(data_raw, 1) == obj.nCh && size(data_raw, 2) == n
@@ -19,25 +23,29 @@ classdef OTB400Adapter < DeviceInterface
                 data = data_raw;
             end
         end
+
         function stop(obj)
             obj.objOT.stopAcquisitionEMG();
         end
+
         function flush(obj)
+            % Drop data that piled up before the loop starts.
             obj.objOT.flushInput();
         end
+
         function disconnect(obj)
             try, obj.objOT.disconnectBTdevice(); catch, end
         end
     end
     methods (Static)
         function [adapter, nCh, vCh] = configure(handles, deviceName)
-            [selection,ok] = OTB400_SelectInputs(deviceName);
+            [selection, ok] = OTB400_SelectInputs(deviceName);
             if ~ok, error('User cancelled OTB selection.'); end
-            objOT = OT_Acquire('inputs',selection,120);
+            objOT = OT_Acquire('inputs', selection, 120);
             nCh = objOT.Nch;
-            set(handles.et_chs,'String',num2str(nCh));
+            set(handles.et_chs, 'String', num2str(nCh));
             vCh = 1:nCh;
-            
+
             % Force sample rate
             srList = cellstr(get(handles.pm_sampleRate, 'String'));
             idxSR = find(strcmp(srList, '2048'), 1);
@@ -46,12 +54,12 @@ classdef OTB400Adapter < DeviceInterface
                 idxSR = numel(srList);
             end
             set(handles.pm_sampleRate, 'Value', idxSR);
-            
+
             % Force COM port
             comList = cellstr(get(handles.ComPortType, 'String'));
             idxCOM = find(strcmp(comList, 'COM'), 1);
             if ~isempty(idxCOM), set(handles.ComPortType, 'Value', idxCOM); end
-            
+
             adapter = OTB400Adapter(objOT, nCh);
         end
     end

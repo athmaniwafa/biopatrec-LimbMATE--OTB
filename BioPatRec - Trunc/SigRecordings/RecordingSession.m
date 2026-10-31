@@ -500,10 +500,16 @@ while ex <= nM
             toc
         end
         
+
         % Stop acquisition
         if isOTB400(deviceName)
             clear movementCleanup;
         else
+
+        % Stop acquisition. SQ+ keeps its connection open between
+        % movements (it is stopped once, after the last movement).
+        if ~isSQplus(deviceName)
+
             dev.stop();
         end
         if useAcceleGlove
@@ -548,6 +554,11 @@ while ex <= nM
         end
         allData = [];
     end
+end
+
+% SQ+: all movements done, now stop the stream and close the connection
+if isSQplus(deviceName) && exist('dev','var') && ~isempty(dev)
+    dev.stop();
 end
 
 %% Session finish..

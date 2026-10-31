@@ -128,54 +128,12 @@ end
 
 setappdata(mainFig, 'OTBRecordingRefresh', @highlightTrace);
 
-% --- SQ+ matrix: separate window with the live amplitude heatmap ---
-heatLimit = 0.01;
-if isSQmatrix
-    gmap    = state0Map(mainFig);
-    present = isfinite(gmap);
-    hf = figure('Name','SQ+ live heatmap','NumberTitle','off', ...
-        'Tag','SQHeatFig','Units','normalized', ...
-        'Position',[0.62 0.08 0.30 0.50]);
-    hax = axes('Parent',hf);
-    hImg = imagesc(hax, nan(size(gmap)));
-    set(hImg,'AlphaData',present);
-    set(hax,'Color',[.85 .85 .85],'XTick',[],'YTick',[]);
-    axis(hax,'image');
-    colormap(hax,'jet');
-    cb = colorbar(hax);
-    ylabel(cb,'mean |x| (mV)');
-    hold(hax,'on');
-    for rr = 1:size(gmap,1)
-        for cc = 1:size(gmap,2)
-            if present(rr,cc)
-                text(hax,cc,rr,num2str(mod(gmap(rr,cc)-1,64)+1), ...
-                    'HorizontalAlignment','center','FontSize',7, ...
-                    'Color',[1 1 1],'HitTest','off');
-            end
-        end
-    end
-    hold(hax,'off');
-    title(hax,'Live amplitude');
-    setappdata(mainFig,'SQHeatmapUpdate',@updateHeat);
-    figure(mainFig);
+% Live amplitude heatmap in its own window (drawn on the installed map)
+try
+    OTB400_LiveHeatmap('open', mainFig);
+catch heatErr
+    warning('Live heatmap unavailable: %s', heatErr.message);
 end
-
-    function m = state0Map(fig)
-        stt = getappdata(fig, 'OTB400_ChannelMapState');
-        m = stt.map;
-    end
-
-    function updateHeat(cData)
-        if ~isgraphics(hImg), return; end
-        v = mean(abs(double(cData)),1);
-        img = nan(size(gmap));
-        img(present) = v(gmap(present));
-        set(hImg,'CData',img);
-        heatLimit = max(heatLimit*0.97, max(img(:),[],'omitnan'));
-        heatLimit = max(heatLimit, 1e-3);
-        set(hax,'CLim',[0 heatLimit]);
-        drawnow limitrate;
-    end
 
     function onFilter(src,~)
         if get(src,'Value')
